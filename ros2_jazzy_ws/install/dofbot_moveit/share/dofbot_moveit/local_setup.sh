@@ -1,0 +1,1 @@
+/home/osboxes/ros2_jazzy_ws/build/dofbot_moveit/ament_cmake_environment_hooks/local_setup.sh

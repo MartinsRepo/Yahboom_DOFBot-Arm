@@ -1,0 +1,1 @@
+/home/osboxes/ros2_jazzy_ws/src/dofbot_visual/detection/frozen_inference_graph.pb

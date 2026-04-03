@@ -1,0 +1,1 @@
+/home/osboxes/ros2_jazzy_ws/build/yahboomcar_msgs/rosidl_typesupport_fastrtps_c/yahboomcar_msgs/srv/detail/kinemarics__rosidl_typesupport_fastrtps_c.h

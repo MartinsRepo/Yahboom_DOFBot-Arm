@@ -1,0 +1,8 @@
+source;share/dofbot_visual/hook/cmake_prefix_path.ps1
+source;share/dofbot_visual/hook/cmake_prefix_path.dsv
+source;share/dofbot_visual/hook/cmake_prefix_path.sh
+source;share/dofbot_visual/local_setup.bash
+source;share/dofbot_visual/local_setup.dsv
+source;share/dofbot_visual/local_setup.ps1
+source;share/dofbot_visual/local_setup.sh
+source;share/dofbot_visual/local_setup.zsh

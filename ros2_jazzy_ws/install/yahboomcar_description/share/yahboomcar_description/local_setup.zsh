@@ -1,0 +1,1 @@
+/home/osboxes/ros2_jazzy_ws/build/yahboomcar_description/ament_cmake_environment_hooks/local_setup.zsh

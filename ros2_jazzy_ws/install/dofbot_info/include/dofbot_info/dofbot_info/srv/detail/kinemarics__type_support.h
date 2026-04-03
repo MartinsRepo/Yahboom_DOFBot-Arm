@@ -1,0 +1,1 @@
+/home/osboxes/ros2_jazzy_ws/build/dofbot_info/rosidl_generator_c/dofbot_info/srv/detail/kinemarics__type_support.h

@@ -1,0 +1,1 @@
+/home/osboxes/ros2_jazzy_ws/build/dofbot_garbage_yolov5/ament_cmake_environment_hooks/local_setup.sh

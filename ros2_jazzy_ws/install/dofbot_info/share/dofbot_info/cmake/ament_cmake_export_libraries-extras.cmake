@@ -1,0 +1,1 @@
+/home/osboxes/ros2_jazzy_ws/build/dofbot_info/ament_cmake_export_libraries/ament_cmake_export_libraries-extras.cmake
