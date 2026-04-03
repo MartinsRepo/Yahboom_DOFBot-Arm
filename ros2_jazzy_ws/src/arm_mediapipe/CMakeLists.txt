@@ -14,6 +14,7 @@ install(
     scripts/arm_driver.py
     scripts/media_library.py
     scripts/msgToimg.py
+    scripts/roboarm_bridge.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
