@@ -1,1 +1,0 @@
-/home/osboxes/ros2_jazzy_ws/build/yahboomcar_msgs/rosidl_typesupport_introspection_c/yahboomcar_msgs/msg/detail/target__rosidl_typesupport_introspection_c.h

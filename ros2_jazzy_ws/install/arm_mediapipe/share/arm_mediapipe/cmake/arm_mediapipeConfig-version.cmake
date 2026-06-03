@@ -1,1 +1,0 @@
-/home/osboxes/ros2_jazzy_ws/build/arm_mediapipe/ament_cmake_core/arm_mediapipeConfig-version.cmake

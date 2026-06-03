@@ -1,1 +1,0 @@
-/home/osboxes/ros2_jazzy_ws/build/dofbot_color_follow/ament_cmake_core/dofbot_color_followConfig.cmake

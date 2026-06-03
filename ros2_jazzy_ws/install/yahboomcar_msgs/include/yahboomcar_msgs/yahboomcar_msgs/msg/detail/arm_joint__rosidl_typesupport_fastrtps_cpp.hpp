@@ -1,1 +1,0 @@
-/home/osboxes/ros2_jazzy_ws/build/yahboomcar_msgs/rosidl_typesupport_fastrtps_cpp/yahboomcar_msgs/msg/detail/arm_joint__rosidl_typesupport_fastrtps_cpp.hpp

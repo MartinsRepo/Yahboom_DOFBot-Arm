@@ -1,0 +1,15 @@
+build/
+install/
+log/
+.venv/
+.venv*/
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+.vscode/
+.idea/
+.host-libs/
+.ros-libs/
+docker_data/

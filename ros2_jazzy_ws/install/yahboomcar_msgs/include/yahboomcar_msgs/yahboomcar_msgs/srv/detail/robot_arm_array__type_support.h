@@ -1,1 +1,0 @@
-/home/osboxes/ros2_jazzy_ws/build/yahboomcar_msgs/rosidl_generator_c/yahboomcar_msgs/srv/detail/robot_arm_array__type_support.h

@@ -1,1 +1,0 @@
-/home/osboxes/ros2_jazzy_ws/build/yahboomcar_msgs/rosidl_typesupport_fastrtps_c/yahboomcar_msgs/msg/detail/image_msg__rosidl_typesupport_fastrtps_c.h

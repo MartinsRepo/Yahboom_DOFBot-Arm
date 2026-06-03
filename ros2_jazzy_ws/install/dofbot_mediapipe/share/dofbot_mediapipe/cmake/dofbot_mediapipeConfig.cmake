@@ -1,1 +1,0 @@
-/home/osboxes/ros2_jazzy_ws/build/dofbot_mediapipe/ament_cmake_core/dofbot_mediapipeConfig.cmake

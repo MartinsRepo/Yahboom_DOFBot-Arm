@@ -1,1 +1,0 @@
-/home/osboxes/ros2_jazzy_ws/build/dofbot_info/rosidl_typesupport_introspection_cpp/dofbot_info/srv/detail/kinemarics__rosidl_typesupport_introspection_cpp.hpp

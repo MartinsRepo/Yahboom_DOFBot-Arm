@@ -1,0 +1,42 @@
+# Python dependencies validated for Ubuntu 24.04 + Python 3.12 target.
+# Install with: python3 -m pip install -r requirements-jazzy.txt
+
+# Core numeric and vision stack
+numpy>=1.26,<3
+opencv-python>=4.10
+scipy>=1.11
+pillow>=10.3
+pyyaml>=6.0.1
+matplotlib>=3.8
+tqdm>=4.66
+PyQt5==5.15.10
+pyserial>=3.5
+docker>=7.1
+
+# ML runtimes
+# YOLOv5 legacy code in this repo was updated for PyTorch 2.x APIs.
+torch>=2.3
+torchvision>=0.18
+
+# MediaPipe legacy `solutions` API required by the detector scripts.
+mediapipe==0.10.14
+
+# TensorFlow for Python 3.12
+tensorflow>=2.17
+
+# NVIDIA CUDA dependencies for TensorFlow GPU support on Ubuntu 24.04 with Python 3.12.
+# These are the CUDA 12.x versions of the libraries compatible with TensorFlow 2.17.
+# nano .venv/bin/activate
+# and add at the bottom of the file:
+# export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu/
+# export XLA_FLAGS=--xla_gpu_cuda_data_dir=/usr/lib/cuda
+
+nvidia-cuda-runtime-cu12 
+nvidia-cudnn-cu12 
+nvidia-cublas-cu12 
+nvidia-cufft-cu12 
+nvidia-curand-cu12 
+nvidia-cusolver-cu12 
+nvidia-cusparse-cu12 
+nvidia-nccl-cu12 
+nvidia-nvtx-cu12

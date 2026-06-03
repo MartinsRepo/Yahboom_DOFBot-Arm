@@ -1,3 +1,0 @@
-<launch>
-    <node pkg="dofbot_info" exec="kinemarics_server.py" name="kinemarics_server" output="screen"/>
-</launch>
