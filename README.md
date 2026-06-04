@@ -30,6 +30,11 @@ If you want the ROS stack without the GUI, use:
 docker compose -f docker/docker-compose.yml up -d --build
 ```
 
+## Arm Control
+
+![Arm Control panel](gallery/panel.png)
+
+
 ## Notes
 
 - The arm serial device is usually available under `/dev/serial/by-id/...`.
