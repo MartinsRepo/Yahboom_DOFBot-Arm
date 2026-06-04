@@ -1,5 +1,7 @@
 # Yahboom DOFBot Arm
 
+![Yahboom DOFBot Arm](gallery/arm.png)
+
 This repository is Docker-only. The supported workflow is to build and run the ROS 2 Jazzy stack inside Docker and launch the Qt GUI from the container.
 
 ## What’s kept
@@ -33,6 +35,13 @@ docker compose -f docker/docker-compose.yml up -d --build
 ## Arm Control
 
 ![Arm Control panel](gallery/panel.png)
+
+## Product Links (DOFBOT SE 6DOF)
+
+- Official product page: https://category.yahboom.net/products/dofbot-se
+- Official tutorial page: http://www.yahboom.net/study/DOFBOT_SE
+- Yahboom store search: https://category.yahboom.net/search?q=DOFBOT+SE
+- AliExpress search: https://de.aliexpress.com/w/wholesale-Yahboom-DOFBOT-SE-6DOF.html
 
 
 ## Notes
