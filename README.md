@@ -24,6 +24,10 @@ DOFBOT_CAMERA_DEVICE=/dev/video0 \
 
 That command rebuilds the image, starts the ROS stack in the container, and opens the GUI on the host display through X11.
 
+## License
+
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
+
 ## Container stack only
 
 If you want the ROS stack without the GUI, use:
