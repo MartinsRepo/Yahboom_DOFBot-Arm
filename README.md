@@ -17,7 +17,7 @@ This repository is Docker-only. The supported workflow is to build and run the R
 ## Build and run
 
 ```bash
-ENABLE_LLM_CONTROLLER=1 ENABLE_SPEECH_CONTROLLER=1 DOFBOT_CONTROL_MODE=AUTO DOFBOT_STRICT_SAFETY=1 DOFBOT_LLM_PROVIDER=ollama DOFBOT_OLLAMA_MODEL=llama3.1:8b DOFBOT_AUDIO_DEVICE=/dev/snd DOFBOT_SPEECH_DEVICE=HD-3000 DOFBOT_VOICE_OUTPUT_ENABLED=1 DOFBOT_VOICE_OUTPUT_VOICE=en-us ./start_robocontrol_container_gui.sh^C
+ENABLE_LLM_CONTROLLER=1 ENABLE_SPEECH_CONTROLLER=1 DOFBOT_CONTROL_MODE=AUTO DOFBOT_STRICT_SAFETY=1 DOFBOT_LLM_PROVIDER=ollama DOFBOT_OLLAMA_MODEL=llama3.1:8b DOFBOT_AUDIO_DEVICE=/dev/snd DOFBOT_SPEECH_DEVICE=HD-3000 DOFBOT_VOICE_OUTPUT_ENABLED=1 DOFBOT_VOICE_OUTPUT_VOICE=en-us ./start_robocontrol_container_gui.sh
 ```
 
 That command rebuilds the image, starts the ROS stack in the container, and opens the GUI on the host display through X11.
