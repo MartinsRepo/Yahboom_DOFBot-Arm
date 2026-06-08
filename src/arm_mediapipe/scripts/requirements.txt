@@ -1,0 +1,6 @@
+# Dependencies for vosk_terminal_test.py
+# Install with:
+#   python3 -m pip install -r requirements.txt
+
+vosk>=0.3.45
+sounddevice>=0.4.7

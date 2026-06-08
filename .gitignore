@@ -51,3 +51,4 @@ Thumbs.db
 # Docker runtime files
 docker_data/
 .env
+config/llm_controller.json

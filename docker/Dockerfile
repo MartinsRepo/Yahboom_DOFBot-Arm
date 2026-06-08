@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-colcon-common-extensions \
     python3-rosdep \
     python3-vcstool \
+    libportaudio2 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR ${OVERLAY_WS}
@@ -21,6 +22,8 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
 
 COPY src ./src
 COPY third_party ./third_party
+COPY config ./config
+COPY models ./models
 
 RUN source /opt/ros/jazzy/setup.bash && \
     colcon build --packages-select arm_mediapipe dofbot_mediapipe
@@ -35,6 +38,8 @@ SHELL ["/bin/bash", "-c"]
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     libgl1 \
+    libportaudio2 \
+    espeak-ng \
     fontconfig \
     fonts-dejavu-core \
     libx11-xcb1 \
@@ -64,6 +69,8 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
 COPY --from=builder ${OVERLAY_WS}/install ./install
 COPY src ./src
 COPY third_party ./third_party
+COPY config ./config
+COPY models ./models
 COPY RoboControl.py ./RoboControl.py
 COPY robocontrol_gui.py ./robocontrol_gui.py
 COPY robocontrol_bootstrap.py ./robocontrol_bootstrap.py

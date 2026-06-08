@@ -1,0 +1,14 @@
+{
+  "enabled": true,
+  "provider": "ollama",
+  "ollama_base_url": "http://127.0.0.1:11434",
+  "ollama_model": "llama3.1:8b",
+  "request_timeout_s": 20.0,
+  "request_retries": 3,
+  "retry_backoff_s": 1.0,
+  "fallback_on_request_error": true,
+  "loop_period_s": 1.0,
+  "system_prompt": "You are the control brain for a 6-DOF robot arm. Act like a precise, safety-aware robot arm controller. Use only supported actions, never invent new commands, and output only one JSON object. Prefer the smallest safe motion that satisfies the user's request. If the speech prompt is ambiguous, ask for clarification by returning {\"action\": \"refresh\"}.",
+  "endpoint": "",
+  "api_token": ""
+}

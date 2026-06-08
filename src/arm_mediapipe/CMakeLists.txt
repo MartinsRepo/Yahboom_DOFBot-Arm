@@ -6,6 +6,9 @@ find_package(ament_cmake REQUIRED)
 install(
   PROGRAMS
     scripts/roboarm_bridge.py
+    scripts/llm_controller.py
+    scripts/speech_input.py
+    scripts/tool_executor.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

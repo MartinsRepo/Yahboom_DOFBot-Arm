@@ -2,10 +2,12 @@
 """ROS 2 bridge between RoboControl UI and the vendor arm controller."""
 
 import argparse
+import glob
 import json
 import math
 import os
 import sys
+import time
 from typing import Optional
 
 import rclpy
@@ -42,10 +44,67 @@ def resolve_default_device() -> str:
     return DEFAULT_DEVICE_CANDIDATES[-1]
 
 
+def build_serial_device_candidates(preferred: str) -> list[str]:
+    candidates: list[str] = []
+    preferred = (preferred or "").strip()
+    if preferred.lower() in {"auto", "default", "none"}:
+        preferred = ""
+
+    def add_candidate(path: str) -> None:
+        if not path:
+            return
+        normalized = os.path.realpath(path) if os.path.exists(path) else path
+        if normalized not in candidates:
+            candidates.append(normalized)
+
+    add_candidate(preferred)
+
+    for by_id_path in sorted(glob.glob("/dev/serial/by-id/*")):
+        add_candidate(by_id_path)
+
+    for tty_path in sorted(glob.glob("/dev/ttyUSB*")):
+        add_candidate(tty_path)
+
+    for tty_path in sorted(glob.glob("/dev/ttyACM*")):
+        add_candidate(tty_path)
+
+    return candidates
+
+
 DEFAULT_DEVICE = resolve_default_device()
 DEFAULT_HOME_JOINTS = [90, 130, 0, 0, 90, 30]
 DEFAULT_MOVE_DURATION_MS = 500
 DEFAULT_POLL_PERIOD = 0.25
+
+CONTROL_MODE_GUI = "GUI"
+CONTROL_MODE_LLM = "LLM"
+CONTROL_MODE_AUTO = "AUTO"
+VALID_CONTROL_MODES = {CONTROL_MODE_GUI, CONTROL_MODE_LLM, CONTROL_MODE_AUTO}
+
+DEFAULT_CONTROL_MODE = os.environ.get("DOFBOT_CONTROL_MODE", CONTROL_MODE_GUI).strip().upper()
+DEFAULT_COMMAND_RATE_LIMIT_HZ = float(os.environ.get("DOFBOT_COMMAND_RATE_LIMIT_HZ", "8.0"))
+DEFAULT_LLM_STALE_TIMEOUT_S = float(os.environ.get("DOFBOT_LLM_STALE_TIMEOUT_S", "2.0"))
+DEFAULT_MANUAL_OVERRIDE_WINDOW_S = float(os.environ.get("DOFBOT_MANUAL_OVERRIDE_WINDOW_S", "1.5"))
+STRICT_SAFETY_ENABLED = os.environ.get("DOFBOT_STRICT_SAFETY", "1").strip().lower() in ("1", "true", "yes", "on")
+
+SUPPORTED_ACTIONS = {
+    "toggle_active",
+    "power_on",
+    "power_off",
+    "home",
+    "move_left",
+    "move_right",
+    "move_up",
+    "move_down",
+    "turn_left",
+    "turn_right",
+    "arm_stretch",
+    "arm_shrink",
+    "grip_open",
+    "grip_close",
+    "refresh",
+}
+EMERGENCY_ACTIONS = {"power_off", "home", "refresh"}
 
 
 class RoboArmBridge(Node):
@@ -79,13 +138,36 @@ class RoboArmBridge(Node):
         self.status_text = "Starting"
         self.readback_enabled = True
         self.read_failures = 0
+        self.control_mode = DEFAULT_CONTROL_MODE if DEFAULT_CONTROL_MODE in VALID_CONTROL_MODES else CONTROL_MODE_GUI
+        self.command_rate_limit_hz = max(0.1, float(DEFAULT_COMMAND_RATE_LIMIT_HZ))
+        self.command_min_interval_s = 1.0 / self.command_rate_limit_hz
+        self.llm_stale_timeout_s = max(0.0, float(DEFAULT_LLM_STALE_TIMEOUT_S))
+        self.manual_override_window_s = max(0.0, float(DEFAULT_MANUAL_OVERRIDE_WINDOW_S))
+        self.strict_safety_enabled = STRICT_SAFETY_ENABLED
+        self.manual_override_until_s = 0.0
+        self.last_command_time_s = 0.0
+        self.last_command_source = "none"
+        self.last_command_action = ""
+        self.last_reject_reason = ""
 
         self.status_publisher = self.create_publisher(String, "roboarm/status", 10)
         self.joint_state_publisher = self.create_publisher(JointState, "roboarm/joint_states", 10)
         self.command_subscription = self.create_subscription(
             String,
             "roboarm/command",
-            self.handle_command,
+            lambda msg: self.handle_command(msg, source="gui"),
+            10,
+        )
+        self.llm_command_subscription = self.create_subscription(
+            String,
+            "roboarm/llm_command",
+            lambda msg: self.handle_command(msg, source="llm"),
+            10,
+        )
+        self.mode_subscription = self.create_subscription(
+            String,
+            "/robocontrol/mode",
+            self.handle_mode_message,
             10,
         )
 
@@ -118,24 +200,86 @@ class RoboArmBridge(Node):
         if self.arm_device_cls is None:
             return False
 
-        try:
-            self.arm = self.arm_device_cls(self.device)
+        candidate_paths = build_serial_device_candidates(self.device)
+        if candidate_paths:
+            self.get_logger().info(
+                "Serial auto-detect candidates: " + ", ".join(candidate_paths)
+            )
+        else:
+            self.get_logger().warning("Serial auto-detect found no candidate devices")
+        failed_details: list[str] = []
+        fallback_arm = None
+        fallback_device = ""
+
+        for candidate in candidate_paths:
+            try:
+                arm_handle = self.arm_device_cls(candidate)
+            except Exception as exc:  # pragma: no cover - hardware access depends on host setup
+                failed_details.append(f"{candidate} (open failed: {exc})")
+                continue
+
+            if fallback_arm is None:
+                fallback_arm = arm_handle
+                fallback_device = candidate
+
+            if self._probe_arm_connection(arm_handle):
+                self.arm = arm_handle
+                self.device = candidate
+                self.connected = True
+                self.active = True
+                self.last_error = ""
+                self.status_text = "Connected"
+                self._enable_servo_bus()
+                self._read_current_joints()
+                self.get_logger().info(f"Selected serial device: {self.device}")
+                self.get_logger().info(f"Connected to arm on {self.device}")
+                return True
+
+            failed_details.append(f"{candidate} (opened but no servo response)")
+
+        if fallback_arm is not None:
+            self.arm = fallback_arm
+            self.device = fallback_device
             self.connected = True
             self.active = True
-            self.last_error = ""
-            self.status_text = "Connected"
+            self.last_error = "No responsive servo readback; using best-effort serial device"
+            self.status_text = "Connected (best effort)"
             self._enable_servo_bus()
-            self._read_current_joints()
-            self.get_logger().info(f"Connected to arm on {self.device}")
+            self.get_logger().warning(f"Selected serial device (best effort): {self.device}")
+            self.get_logger().warning(
+                f"Connected on {self.device} without readback confirmation; command writes may still work"
+            )
             return True
-        except Exception as exc:  # pragma: no cover - hardware access depends on host setup
-            self.arm = None
-            self.connected = False
-            self.active = False
-            self.last_error = f"Failed opening {self.device}: {exc}"
-            self.status_text = "Disconnected"
-            self.get_logger().error(self.last_error)
-            return False
+
+        attempted = ", ".join(candidate_paths) if candidate_paths else self.device
+        details = "; ".join(failed_details) if failed_details else "no serial candidates"
+        self.arm = None
+        self.connected = False
+        self.active = False
+        self.last_error = f"Failed opening any serial device. attempted=[{attempted}] details=[{details}]"
+        self.status_text = "Disconnected"
+        self.get_logger().error(self.last_error)
+        return False
+
+    def _probe_arm_connection(self, arm_handle) -> bool:
+        for servo_id in range(1, 7):
+            try:
+                value = arm_handle.Arm_serial_servo_read(servo_id)
+            except Exception:
+                continue
+
+            if value is None:
+                continue
+
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                continue
+
+            if 0.0 <= numeric <= 300.0:
+                return True
+
+        return False
 
     def _enable_servo_bus(self) -> None:
         if self.arm is None:
@@ -198,6 +342,13 @@ class RoboArmBridge(Node):
             "move_duration_ms": self.move_duration_ms,
             "status_text": self.status_text,
             "last_error": self.last_error,
+            "control_mode": self.control_mode,
+            "strict_safety_enabled": self.strict_safety_enabled,
+            "readback_enabled": self.readback_enabled,
+            "last_reject_reason": self.last_reject_reason,
+            "last_command_source": self.last_command_source,
+            "last_command_action": self.last_command_action,
+            "last_command_time_s": round(self.last_command_time_s, 3),
             "servos": [
                 {
                     "id": servo_id,
@@ -222,21 +373,127 @@ class RoboArmBridge(Node):
             bounded = 180 - bounded
         return int((3100 - 900) * bounded / 180 + 900)
 
-    def handle_command(self, message: String) -> None:
+    def handle_mode_message(self, message: String) -> None:
+        raw_mode = message.data.strip()
+        if not raw_mode:
+            return
+
+        try:
+            payload = json.loads(raw_mode)
+            mode = str(payload.get("mode", "")).strip().upper()
+        except json.JSONDecodeError:
+            mode = raw_mode.upper()
+
+        if mode not in VALID_CONTROL_MODES:
+            self.last_reject_reason = f"Invalid control mode: {mode}"
+            self.last_error = self.last_reject_reason
+            self.status_text = "Mode rejected"
+            self.publish_state()
+            return
+
+        self.control_mode = mode
+        self.last_error = ""
+        self.last_reject_reason = ""
+        self.status_text = f"Mode set to {self.control_mode}"
+        self.publish_state()
+
+    def handle_command(self, message: String, source: str = "gui") -> None:
+        now_s = time.time()
         try:
             payload = json.loads(message.data)
         except json.JSONDecodeError:
             self.last_error = f"Invalid command payload: {message.data}"
             self.status_text = "Invalid command"
+            self.last_reject_reason = self.last_error
+            self.publish_state()
+            return
+
+        if not isinstance(payload, dict):
+            self.last_error = "Invalid command payload: expected JSON object"
+            self.status_text = "Invalid command"
+            self.last_reject_reason = self.last_error
+            self.publish_state()
+            return
+
+        source = source.lower().strip() or "gui"
+        action = str(payload.get("action", "")).strip()
+        if action not in SUPPORTED_ACTIONS:
+            self.last_error = f"Unsupported action: {action}"
+            self.status_text = "Unsupported action"
+            self.last_reject_reason = self.last_error
+            self.publish_state()
+            return
+
+        if not self._is_source_allowed(source, action, now_s, payload):
+            self.get_logger().warning(
+                f"Rejected command from {source}: action={action} reason={self.last_reject_reason}"
+            )
             self.publish_state()
             return
 
         duration_ms = payload.get("duration_ms")
         if duration_ms is not None:
-            self.move_duration_ms = max(100, min(int(duration_ms), 5000))
+            try:
+                self.move_duration_ms = max(100, min(int(duration_ms), 5000))
+            except (TypeError, ValueError):
+                self.last_error = f"Invalid duration_ms: {duration_ms}"
+                self.status_text = "Invalid command"
+                self.last_reject_reason = self.last_error
+                self.publish_state()
+                return
 
-        action = payload.get("action", "")
+        self.get_logger().info(f"Executing command from {source}: action={action}")
+        self._execute_action(action)
+        self.last_command_time_s = now_s
+        self.last_command_source = source
+        self.last_command_action = action
+        self.last_error = ""
+        if source == "gui" and self.control_mode == CONTROL_MODE_AUTO:
+            self.manual_override_until_s = now_s + self.manual_override_window_s
+        self.last_reject_reason = ""
+        self.publish_state()
 
+    def _is_source_allowed(self, source: str, action: str, now_s: float, payload: dict) -> bool:
+        if source == "llm" and self.control_mode == CONTROL_MODE_GUI:
+            self.last_reject_reason = "LLM command rejected in GUI mode"
+        elif source == "gui" and self.control_mode == CONTROL_MODE_LLM and action not in EMERGENCY_ACTIONS:
+            self.last_reject_reason = "GUI command rejected in LLM mode"
+        elif source == "llm" and self.control_mode == CONTROL_MODE_AUTO and now_s < self.manual_override_until_s:
+            self.last_reject_reason = "LLM command suppressed by manual override"
+        elif (
+            self.strict_safety_enabled
+            and source == "llm"
+            and not self.readback_enabled
+            and action not in EMERGENCY_ACTIONS
+            and self.control_mode == CONTROL_MODE_LLM
+        ):
+            self.last_reject_reason = "LLM command rejected: readback unavailable"
+        elif self.strict_safety_enabled and source == "llm":
+            elapsed = now_s - self.last_command_time_s
+            if elapsed < self.command_min_interval_s:
+                self.last_reject_reason = "LLM command rejected: rate limit"
+            else:
+                request_ts = None
+                if "timestamp_s" in payload:
+                    try:
+                        request_ts = float(payload.get("timestamp_s"))
+                    except (TypeError, ValueError):
+                        request_ts = None
+                if request_ts is not None and now_s - request_ts > self.llm_stale_timeout_s:
+                    self.last_reject_reason = "LLM command rejected: stale payload"
+                else:
+                    self.last_reject_reason = ""
+        else:
+            self.last_reject_reason = ""
+
+        if not self.last_reject_reason:
+            return True
+
+        self.last_error = self.last_reject_reason
+        self.status_text = "Command rejected"
+        return False
+
+    def _execute_action(self, action: str) -> None:
         if action == "toggle_active":
             self.toggle_active()
         elif action == "power_on":
@@ -269,11 +526,6 @@ class RoboArmBridge(Node):
             if self.readback_enabled:
                 self._read_current_joints()
             self.status_text = "Refreshed"
-        else:
-            self.last_error = f"Unsupported action: {action}"
-            self.status_text = "Unsupported action"
-
-        self.publish_state()
 
     def toggle_active(self) -> None:
         if not self.connected and not self._connect_arm():
@@ -305,6 +557,7 @@ class RoboArmBridge(Node):
         except Exception as exc:  # pragma: no cover - hardware access depends on host setup
             self.last_error = f"Home command failed: {exc}"
             self.status_text = "Home failed"
+            self.get_logger().error(self.last_error)
 
     def step_joint(self, servo_id: int, delta: float) -> None:
         if not self._ensure_motion_allowed(f"step joint {servo_id}"):
@@ -332,6 +585,7 @@ class RoboArmBridge(Node):
         except Exception as exc:  # pragma: no cover - hardware access depends on host setup
             self.last_error = f"Move failed for servo {servo_id}: {exc}"
             self.status_text = "Move failed"
+            self.get_logger().error(self.last_error)
 
     def arm_stretch(self) -> None:
         if not self._ensure_motion_allowed("stretch arm"):
@@ -374,6 +628,7 @@ class RoboArmBridge(Node):
         except Exception as exc:  # pragma: no cover - hardware access depends on host setup
             self.last_error = f"Multi-joint move failed: {exc}"
             self.status_text = "Move failed"
+            self.get_logger().error(self.last_error)
 
     def _record_motion(self, deltas: list[float]) -> None:
         duration_s = max(self.move_duration_ms / 1000.0, 0.001)

@@ -45,6 +45,9 @@ class CameraDriver(Node):
     def __init__(self, camera_device: str, width: int, height: int, fps: int):
         super().__init__('dofbot_camera_driver')
         self.pub = self.create_publisher(CompressedImage, CAMERA_TOPIC, 10)
+        self.rotate_180 = os.environ.get('DOFBOT_CAMERA_ROTATE_180', '1').strip().lower() in (
+            '1', 'true', 'yes', 'on'
+        )
         self.capture = cv.VideoCapture(int(camera_device) if camera_device.isdigit() else camera_device)
         self.capture.set(6, cv.VideoWriter.fourcc('M', 'J', 'P', 'G'))
         self.capture.set(cv.CAP_PROP_FRAME_WIDTH, width)
@@ -55,7 +58,10 @@ class CameraDriver(Node):
         if not self.capture.isOpened():
             self.get_logger().error(f'Failed to open camera device: {camera_device}')
         else:
-            self.get_logger().info(f'Publishing camera frames on {CAMERA_TOPIC} from {camera_device}')
+            transform = 'enabled' if self.rotate_180 else 'disabled'
+            self.get_logger().info(
+                f'Publishing camera frames on {CAMERA_TOPIC} from {camera_device} (180deg rotation {transform})'
+            )
 
     def _publish_frame(self):
         if not self.capture.isOpened():
@@ -64,7 +70,8 @@ class CameraDriver(Node):
         if not ok:
             self.get_logger().warning('Failed to read camera frame')
             return
-        frame = cv.rotate(frame, cv.ROTATE_180)
+        if self.rotate_180:
+            frame = cv.rotate(frame, cv.ROTATE_180)
         ok, encoded = cv.imencode('.jpg', frame, [int(cv.IMWRITE_JPEG_QUALITY), 90])
         if not ok:
             self.get_logger().warning('Failed to encode camera frame')

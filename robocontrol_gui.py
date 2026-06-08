@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import html
 from dataclasses import dataclass
 from typing import Dict
 
@@ -24,6 +25,9 @@ from std_msgs.msg import Bool, String
 
 
 FACE_DETECTION_TOPIC = '/mediapipe/face_detection_summary'
+SPEECH_INPUT_TOPIC = 'roboarm/speech_input'
+SPEECH_STATUS_TOPIC = 'roboarm/speech_status'
+CONTROL_MODES = ('GUI', 'LLM', 'AUTO')
 
 
 @dataclass
@@ -59,14 +63,22 @@ class RoboArmController(QMainWindow):
         self.node = rclpy.create_node("robocontrol_gui")
         self.command_publisher = self.node.create_publisher(String, "roboarm/command", 10)
         self.face_detection_publisher = self.node.create_publisher(Bool, "/robocontrol/face_detection_enabled", 10)
+        self.mode_publisher = self.node.create_publisher(String, "/robocontrol/mode", 10)
         self.node.create_subscription(String, "roboarm/status", self._handle_status, 10)
         self.node.create_subscription(CompressedImage, "/mediapipe/camera/image/compressed", self._handle_camera, 10)
         self.node.create_subscription(String, FACE_DETECTION_TOPIC, self._handle_face_summary, 10)
+        self.node.create_subscription(String, SPEECH_INPUT_TOPIC, self._handle_speech_input, 10)
+        self.node.create_subscription(String, SPEECH_STATUS_TOPIC, self._handle_speech_status, 10)
 
         self.status = ArmStatus()
         self.latest_status_payload: dict = {}
         self.face_summary = FaceSummary(keypoints={})
         self.face_detection_enabled = False
+        self.control_mode = 'GUI'
+        self.last_spoken_command = ''
+        self.last_heard_speech = ''
+        self.speech_state = 'n/a'
+        self.speech_message = 'n/a'
         self.last_frame = None
 
         self._build_ui()
@@ -177,17 +189,20 @@ class RoboArmController(QMainWindow):
         self.btn_home = QPushButton("HOME")
         self.btn_refresh = QPushButton("REFRESH")
         self.btn_face_detection = QPushButton("FACE DETECTION OFF")
+        self.btn_mode = QPushButton("MODE: GUI")
 
         self.btn_onoff.setStyleSheet(button_3d_style + "QPushButton { background-color: #ffcccc; }")
         self.btn_home.setStyleSheet(button_3d_style)
         self.btn_refresh.setStyleSheet(button_3d_style)
         self.btn_face_detection.setStyleSheet(button_3d_style)
+        self.btn_mode.setStyleSheet(button_3d_style)
 
         bottom_layout.addStretch()
         bottom_layout.addWidget(self.btn_onoff)
         bottom_layout.addWidget(self.btn_home)
         bottom_layout.addWidget(self.btn_refresh)
         bottom_layout.addWidget(self.btn_face_detection)
+        bottom_layout.addWidget(self.btn_mode)
         bottom_layout.addStretch()
         left_layout.addLayout(bottom_layout)
 
@@ -256,6 +271,14 @@ class RoboArmController(QMainWindow):
         self.btn_refresh.clicked.connect(lambda: self._send_action('refresh'))
         self.btn_onoff.clicked.connect(self._toggle_power)
         self.btn_face_detection.clicked.connect(self._toggle_face_detection)
+        self.btn_mode.clicked.connect(self._cycle_control_mode)
+
+    def _cycle_control_mode(self) -> None:
+        current_index = CONTROL_MODES.index(self.control_mode) if self.control_mode in CONTROL_MODES else 0
+        next_mode = CONTROL_MODES[(current_index + 1) % len(CONTROL_MODES)]
+        self._publish_control_mode(next_mode)
+        self.control_mode = next_mode
+        self._refresh_displays()
 
     def _toggle_power(self) -> None:
         if self.status.active:
@@ -300,20 +323,42 @@ class RoboArmController(QMainWindow):
         self.btn_face_detection.setText(
             "FACE DETECTION ON" if self.face_detection_enabled else "FACE DETECTION OFF"
         )
+        self.btn_mode.setText(f"MODE: {self.control_mode}")
 
         face_status = self.face_summary.status
         center_x = self.face_summary.center_x
         center_y = self.face_summary.center_y
         bbox_w = self.face_summary.bbox_width
         bbox_h = self.face_summary.bbox_height
+
+        gui_active = self.control_mode in ('GUI', 'AUTO')
+        llm_active = self.control_mode in ('LLM', 'AUTO')
+        last_command_source = str(payload.get('last_command_source', 'n/a'))
+        last_command_action = str(payload.get('last_command_action', 'n/a'))
+        last_spoken = self.last_spoken_command or 'n/a'
+        last_heard = self.last_heard_speech or 'n/a'
+
+        gui_active_label = '<span style="color:#2e7d32; font-weight:700;">ACTIVE</span>' if gui_active else '<span style="color:#c62828; font-weight:700;">INACTIVE</span>'
+        llm_active_label = '<span style="color:#2e7d32; font-weight:700;">ACTIVE</span>' if llm_active else '<span style="color:#c62828; font-weight:700;">INACTIVE</span>'
+
         text_lines = [
+            f"Control mode: {self.control_mode}",
+            f"GUI active: {gui_active_label}",
+            f"LLM active: {llm_active_label}",
+            f"Last control source: {last_command_source}",
+            f"Last control action: {last_command_action}",
+            f"Last heard speech: {last_heard}",
+            f"Last spoken command: {last_spoken}",
+            f"Speech status: {self.speech_state}",
+            f"Speech info: {self.speech_message}",
             f"Face detection: {'enabled' if self.face_detection_enabled else 'disabled'}",
             f"Face status: {face_status}",
             f"Center: x={center_x if center_x is not None else 'n/a'}, y={center_y if center_y is not None else 'n/a'}",
             f"BBox: w={bbox_w if bbox_w is not None else 'n/a'}, h={bbox_h if bbox_h is not None else 'n/a'}",
             f"Last error: {self.status.last_error or 'none'}",
         ]
-        self.text_output_display.setText("\n".join(text_lines))
+        text_html = '<br/>'.join(html.escape(line) if '<span' not in line else line for line in text_lines)
+        self.text_output_display.setHtml(text_html)
 
     def _spin_ros_once(self) -> None:
         rclpy.spin_once(self.node, timeout_sec=0.0)
@@ -335,6 +380,11 @@ class RoboArmController(QMainWindow):
         message.data = bool(enabled)
         self.face_detection_publisher.publish(message)
 
+    def _publish_control_mode(self, mode: str) -> None:
+        message = String()
+        message.data = mode
+        self.mode_publisher.publish(message)
+
     def _handle_status(self, message: String) -> None:
         try:
             payload = json.loads(message.data)
@@ -349,6 +399,9 @@ class RoboArmController(QMainWindow):
             status_text=str(payload.get("status_text", "")),
             last_error=str(payload.get("last_error", "")),
         )
+        mode = str(payload.get('control_mode', self.control_mode)).upper()
+        if mode in CONTROL_MODES:
+            self.control_mode = mode
         self._refresh_displays()
 
     def _handle_camera(self, message: CompressedImage) -> None:
@@ -387,6 +440,46 @@ class RoboArmController(QMainWindow):
             bbox_height=payload.get('bbox_height'),
             keypoints=keypoints,
         )
+        self._refresh_displays()
+
+    def _handle_speech_input(self, message: String) -> None:
+        transcript = ''
+        try:
+            payload = json.loads(message.data)
+            if isinstance(payload, dict):
+                transcript = str(payload.get('transcript', '')).strip()
+        except json.JSONDecodeError:
+            transcript = message.data.strip()
+
+        if transcript:
+            self.last_heard_speech = transcript
+            self.last_spoken_command = transcript
+            self._refresh_displays()
+
+    def _handle_speech_status(self, message: String) -> None:
+        try:
+            payload = json.loads(message.data)
+        except json.JSONDecodeError:
+            payload = {'state': 'unknown', 'message': message.data}
+
+        self.speech_state = str(payload.get('state', 'unknown'))
+        self.speech_message = str(payload.get('message', 'n/a'))
+
+        lowered = self.speech_message.lower()
+        marker = ''
+        if lowered.startswith('ignored speech without wake word: '):
+            marker = self.speech_message.split(': ', 1)[1].strip()
+            self.last_heard_speech = marker
+        elif lowered.startswith('prompt captured: '):
+            marker = self.speech_message.split(': ', 1)[1].strip()
+            self.last_heard_speech = marker
+            self.last_spoken_command = marker
+        elif lowered.startswith('wake word heard; prompt='):
+            marker = self.speech_message.split('prompt=', 1)[1].strip()
+            if marker:
+                self.last_heard_speech = marker
+                self.last_spoken_command = marker
+
         self._refresh_displays()
 
     def _draw_face_overlay(self, pixmap: QPixmap) -> None:
