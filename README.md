@@ -36,9 +36,9 @@ If you want the ROS stack without the GUI, use:
 docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-## LLM control (initial implementation)
+## LLM and speech control
 
-The stack now includes an optional LLM controller node (`llm_controller.py`) and bridge-side command arbitration.
+The stack includes an optional LLM controller node (`llm_controller.py`), a speech input node, and bridge-side command arbitration.
 
 Create a runtime config file from the template:
 
@@ -46,13 +46,25 @@ Create a runtime config file from the template:
 cp config/llm_controller.example.json config/llm_controller.json
 ```
 
-Set these environment variables before launch:
+For LLM-assisted arm control with speech input, start the container with:
 
 ```bash
-ENABLE_LLM_CONTROLLER=1
-ENABLE_SPEECH_CONTROLLER=1
-DOFBOT_CONTROL_MODE=AUTO   # GUI | LLM | AUTO
-DOFBOT_STRICT_SAFETY=1
+ENABLE_LLM_CONTROLLER=1 \
+ENABLE_SPEECH_CONTROLLER=1 \
+DOFBOT_CONTROL_MODE=AUTO \
+DOFBOT_STRICT_SAFETY=1 \
+DOFBOT_LLM_PROVIDER=ollama \
+DOFBOT_OLLAMA_MODEL=llama3.1:8b \
+DOFBOT_AUDIO_DEVICE=/dev/snd \
+DOFBOT_SPEECH_DEVICE=HD-3000 \
+DOFBOT_VOICE_OUTPUT_ENABLED=1 \
+DOFBOT_VOICE_OUTPUT_VOICE=en-us \
+./start_robocontrol_container_gui.sh
+```
+
+Recommended runtime settings and related options:
+
+```bash
 DOFBOT_COMMAND_RATE_LIMIT_HZ=8.0
 DOFBOT_LLM_STALE_TIMEOUT_S=2.0
 DOFBOT_MANUAL_OVERRIDE_WINDOW_S=1.5
@@ -67,29 +79,29 @@ DOFBOT_LLM_RETRY_BACKOFF_S=1.0
 DOFBOT_LLM_FALLBACK_ON_ERROR=1
 DOFBOT_VOICE_OUTPUT_ENABLED=1
 DOFBOT_VOICE_OUTPUT_VOICE=       # optional espeak voice, e.g. en-us
-DOFBOT_VOSK_MODEL_DIR=/opt/ros/overlay_ws/models/vosk-model-en-us-0.22
+DOFBOT_VOSK_MODEL_DIR=/opt/ros/overlay_ws/models/vosk-model-small-de-zamia-0.3
 DOFBOT_AUDIO_DEVICE=/dev/snd
 DOFBOT_SPEECH_DEVICE=HD-3000
 DOFBOT_SPEECH_SAMPLE_RATE=16000
-DOFBOT_SPEECH_BLOCKSIZE=8000
-DOFBOT_SPEECH_LANGUAGE=en
+DOFBOT_SPEECH_BLOCKSIZE=2000
+DOFBOT_SPEECH_LANGUAGE=de
 DOFBOT_SPEECH_TOPIC=roboarm/speech_input
 DOFBOT_SPEECH_FLUSH_SILENCE_S=0.8
 ```
 
 The controller supports these providers:
 
-- `ollama` (recommended first test)
-- `http` (generic JSON endpoint, bearer token optional)
-- `heuristic` (no LLM call)
+- `ollama` for local models through Ollama
+- `http` for a generic JSON endpoint, bearer token optional
+- `heuristic` for no LLM call
 
-For your first local Ollama tests, set `DOFBOT_OLLAMA_MODEL` to one of:
+For local Ollama tests, start with one of these models:
 
 - `llama3.1:8b`
 - `gemma3:12b`
 - `qwen3.5:9b`
 
-Speech input uses the Vosk model in `models/vosk-model-en-us-0.22` by default. The launcher mounts `/dev/snd` automatically when it exists on the host, so the microphone stream can be captured inside the container. The recognized transcript is published to `roboarm/speech_input` and consumed by the LLM controller as prompt input.
+VOSK provides the offline speech recognizer used by the container. See [VOSK](https://alphacephei.com/vosk/) for model downloads and background information. This setup defaults to `models/vosk-model-small-de-zamia-0.3` for German speech control. The launcher mounts `/dev/snd` automatically when it exists on the host, so the microphone stream can be captured inside the container. The recognized transcript is published to `roboarm/speech_input` and consumed by the LLM controller as prompt input.
 
 Quick microphone sanity check (prints recognized speech directly in terminal):
 
@@ -105,6 +117,18 @@ python3 src/arm_mediapipe/scripts/vosk_terminal_test.py --list-devices
 
 If no speech is detected, set `DOFBOT_SPEECH_DEVICE` to a capture-device name substring, for example `HD-3000`, `USB Audio`, or a PortAudio input index.
 
+Speech activation works as a persistent command mode:
+
+- Say `Hallo` to activate speech command mode.
+- After activation, the arm accepts speech commands without repeating the wake word.
+- Say `Stop` to leave speech command mode again.
+
+Supported speech commands include:
+
+- German: `hoch`, `runter`, `links`, `rechts`, `home`, `nimm`, `release`, `aus`, `an`, `stop`
+- English: `up`, `down`, `left`, `right`, `home`, `grip`, `release`, `power on`, `power off`, `stop`
+- Rotation: `rotate grip left`, `rotate grip right`
+
 Voice output is optional and offline via `espeak-ng`. When `DOFBOT_VOICE_OUTPUT_ENABLED=1`, the LLM controller announces executed actions on the system audio output.
 
 Mode behavior:
@@ -113,7 +137,7 @@ Mode behavior:
 - `LLM`: LLM commands are accepted; panel commands are limited to emergency actions (`power_off`, `home`, `refresh`).
 - `AUTO`: both sources are allowed, and recent manual input suppresses LLM commands for a short window.
 
-The GUI now has a `MODE` button to cycle through `GUI`, `LLM`, and `AUTO` at runtime.
+The GUI has a `MODE` button to cycle through `GUI`, `LLM`, and `AUTO` at runtime.
 
 ## Arm Control
 
