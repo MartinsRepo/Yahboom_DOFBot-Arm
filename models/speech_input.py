@@ -35,15 +35,15 @@ else:
     VOSK_IMPORT_ERROR = None
 
 
-#DEFAULT_MODEL_DIR = "/opt/ros/overlay_ws/models/vosk-model-small-en-us-0.15"
 DEFAULT_MODEL_DIR = "/opt/ros/overlay_ws/models/vosk-model-small-de-zamia-0.3"
+#DEFAULT_MODEL_DIR = "/opt/ros/overlay_ws/models/vosk-model-de-0.21"
 DEFAULT_SAMPLE_RATE = 16000
-DEFAULT_BLOCKSIZE = 8192
+DEFAULT_BLOCKSIZE = 2000
 DEFAULT_TOPIC = "roboarm/speech_input"
-DEFAULT_WAKE_WORD_EN = "charlie"
-DEFAULT_WAKE_WORD_DE = "martin"
+DEFAULT_WAKE_WORD_EN = "hello"
+DEFAULT_WAKE_WORD_DE = "karli"
 DEFAULT_STOP_ALIASES = {"heute"}
-DEFAULT_FLUSH_SILENCE_S = 0.8
+DEFAULT_FLUSH_SILENCE_S = 0.4
 DEFAULT_QUEUE_SIZE = 128
 DEFAULT_STREAM_START_TIMEOUT_S = 4.0
 DEFAULT_STREAM_RETRY_DELAY_S = 1.0
@@ -109,13 +109,6 @@ COMMAND_GRAMMAR_EN = [
 ]
 
 
-def _normalize_device_name(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", text.lower())
-
-
-def _normalize_phrase(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
-
 
 class SpeechInputNode(Node):
     def __init__(self) -> None:
@@ -155,8 +148,6 @@ class SpeechInputNode(Node):
             self.wake_word = DEFAULT_WAKE_WORD_DE
         else:
             self.wake_word = DEFAULT_WAKE_WORD_EN
-        configured_wake_word_aliases = os.environ.get("DOFBOT_WAKE_WORD_ALIASES", "").strip().lower()
-        self.wake_word_aliases = [alias for alias in re.split(r"[\s,;|]+", configured_wake_word_aliases) if alias]
         self.wake_word_timeout_s = max(0.5, float(os.environ.get("DOFBOT_WAKE_WORD_TIMEOUT_S", "4.0")))
         if self.device.lower() in {"default", "auto"}:
             self.device = ""
@@ -258,9 +249,8 @@ class SpeechInputNode(Node):
 
         now_s = time.time()
 
-        wake_word_match = self._match_wake_word(normalized)
-        if wake_word_match:
-            cleaned = normalized.replace(wake_word_match, "", 1).strip(" ,.!?;:")
+        if self.wake_word and self.wake_word in normalized:
+            cleaned = normalized.replace(self.wake_word, "", 1).strip(" ,.!?;:")
             self.voice_command_mode_active = True
             self.wake_word_armed = False
             self.awaiting_prompt_until_s = 0.0
@@ -272,7 +262,7 @@ class SpeechInputNode(Node):
                     self._publish_status("listening", "voice command mode disabled by stop")
                     return
                 self._emit_transcript(cleaned, is_final=True)
-                self._publish_status("armed", f"voice command mode active; prompt={cleaned}")
+                self._publish_status("listening", f"voice command mode active; prompt={cleaned}")
                 return
 
             self._publish_status("armed", "voice command mode enabled")
@@ -286,7 +276,7 @@ class SpeechInputNode(Node):
                 return
 
             self._emit_transcript(normalized, is_final=True)
-            self._publish_status("armed", f"voice command mode active; prompt={normalized}")
+            self._publish_status("listening", f"voice command mode active; prompt={normalized}")
             return
 
         if self.wake_word_armed and now_s <= self.awaiting_prompt_until_s:
@@ -297,36 +287,6 @@ class SpeechInputNode(Node):
             return
 
         self._publish_status("listening", f"ignored speech without wake word: {transcript}")
-
-    def _match_wake_word(self, text: str) -> str:
-        candidates = [self.wake_word, *self.wake_word_aliases]
-        for candidate in candidates:
-            if not candidate:
-                continue
-            if self._phrase_matches(candidate, text):
-                return candidate
-        return ""
-
-    def _phrase_matches(self, candidate: str, text: str) -> bool:
-        candidate_normalized = _normalize_phrase(candidate)
-        text_normalized = _normalize_phrase(text)
-        if not candidate_normalized or not text_normalized:
-            return False
-
-        if candidate_normalized == text_normalized:
-            return True
-
-        if candidate_normalized in text_normalized:
-            return True
-
-        candidate_compact = candidate_normalized.replace(" ", "")
-        text_compact = text_normalized.replace(" ", "")
-        if candidate_compact and candidate_compact in text_compact:
-            return True
-
-        candidate_tokens = [token for token in candidate_normalized.split() if token]
-        text_tokens = [token for token in text_normalized.split() if token]
-        return bool(candidate_tokens) and all(token in text_tokens for token in candidate_tokens)
 
     def _is_stop_phrase(self, text: str) -> bool:
         normalized = str(text).strip().lower()
@@ -513,15 +473,11 @@ class SpeechInputNode(Node):
         if requested.isdigit():
             return int(requested)
 
-        requested_normalized = _normalize_device_name(requested)
-        if requested_normalized in {"", "default", "auto"}:
-            return None
-
         try:
             devices = sd.query_devices()
         except Exception as exc:  # pragma: no cover - runtime dependent
             self.get_logger().warning(f"Unable to list audio devices: {exc}")
-            return None
+            return requested
 
         capture_devices = [
             (index, dev) for index, dev in enumerate(devices)
@@ -541,33 +497,16 @@ class SpeechInputNode(Node):
                     return index
 
         requested_lower = requested.lower()
-        requested_tokens = [token for token in re.split(r"[^a-z0-9]+", requested_lower) if token]
         for index, dev in capture_devices:
             dev_name = str(dev.get("name", ""))
-            dev_name_lower = dev_name.lower()
-            dev_name_normalized = _normalize_device_name(dev_name)
-            dev_tokens = {token for token in re.split(r"[^a-z0-9]+", dev_name_lower) if token}
-
-            if requested_lower in dev_name_lower:
-                self.get_logger().info(f"Selected input device #{index}: {dev_name}")
-                return index
-
-            if requested_normalized and requested_normalized == dev_name_normalized:
-                self.get_logger().info(f"Selected input device #{index}: {dev_name}")
-                return index
-
-            if requested_normalized and requested_normalized in dev_name_normalized:
-                self.get_logger().info(f"Selected input device #{index}: {dev_name}")
-                return index
-
-            if requested_tokens and all(token in dev_tokens for token in requested_tokens):
+            if requested_lower in dev_name.lower():
                 self.get_logger().info(f"Selected input device #{index}: {dev_name}")
                 return index
 
         self.get_logger().warning(
-            f"Requested speech device '{requested}' not found by name; using default input device"
+            f"Requested speech device '{requested}' not found by name; using raw value"
         )
-        return None
+        return requested
 
     def stop(self) -> None:
         self.stop_event.set()

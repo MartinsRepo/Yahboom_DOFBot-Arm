@@ -47,7 +47,7 @@ launch_stack() {
     speech_language:="${DOFBOT_SPEECH_LANGUAGE:-de}" \
     speech_topic:="${DOFBOT_SPEECH_TOPIC:-roboarm/speech_input}" \
     speech_flush_silence_s:="${DOFBOT_SPEECH_FLUSH_SILENCE_S:-0.4}" \
-    wake_word:="${DOFBOT_WAKE_WORD:-hallo}" \
+    wake_word:="${DOFBOT_WAKE_WORD:-martin}" \
     wake_word_timeout_s:="${DOFBOT_WAKE_WORD_TIMEOUT_S:-4.0}"
 }
 
@@ -58,7 +58,7 @@ launch_stack() {
   export DOFBOT_OLLAMA_BASE_URL="${DOFBOT_OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
   export DOFBOT_OLLAMA_MODEL="${DOFBOT_OLLAMA_MODEL:-llama3.1:8b}"
   export DOFBOT_LLM_SYSTEM_PROMPT="${DOFBOT_LLM_SYSTEM_PROMPT:-}"
-  export DOFBOT_LLM_LOOP_PERIOD_S="${DOFBOT_LLM_LOOP_PERIOD_S:-1.0}"
+  export DOFBOT_LLM_LOOP_PERIOD_S="${DOFBOT_LLM_LOOP_PERIOD_S:-0.15}"
   export DOFBOT_LLM_REQUEST_TIMEOUT_S="${DOFBOT_LLM_REQUEST_TIMEOUT_S:-20.0}"
   export DOFBOT_LLM_REQUEST_RETRIES="${DOFBOT_LLM_REQUEST_RETRIES:-3}"
   export DOFBOT_LLM_RETRY_BACKOFF_S="${DOFBOT_LLM_RETRY_BACKOFF_S:-1.0}"
@@ -76,7 +76,7 @@ launch_stack() {
   export DOFBOT_SPEECH_LANGUAGE="${DOFBOT_SPEECH_LANGUAGE:-de}"
   export DOFBOT_SPEECH_TOPIC="${DOFBOT_SPEECH_TOPIC:-roboarm/speech_input}"
   export DOFBOT_SPEECH_FLUSH_SILENCE_S="${DOFBOT_SPEECH_FLUSH_SILENCE_S:-0.4}"
-  export DOFBOT_WAKE_WORD="${DOFBOT_WAKE_WORD:-hallo}"
+  export DOFBOT_WAKE_WORD="${DOFBOT_WAKE_WORD:-martin}"
   export DOFBOT_WAKE_WORD_TIMEOUT_S="${DOFBOT_WAKE_WORD_TIMEOUT_S:-4.0}"
 
 wait_for_topic() {

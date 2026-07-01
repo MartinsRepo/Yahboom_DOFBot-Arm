@@ -117,14 +117,16 @@ If no speech is detected, set `DOFBOT_SPEECH_DEVICE` to a capture-device name su
 
 Speech activation works as a persistent command mode:
 
-- Say `Hallo` to activate speech command mode.
+- Say `Karli` to activate speech command mode.
 - After activation, the arm accepts speech commands without repeating the wake word.
+- Motion commands run continuously until `Stop` or `Halt` is spoken.
 - Say `Stop` to leave speech command mode again.
 
 Supported speech commands include:
 
-- German: `hoch`, `runter`, `links`, `rechts`, `home`, `nimm`, `release`, `aus`, `an`, `stop`
+- German: `hoch`, `runter`, `links`, `rechts`, `vor` (Stretch), `zurück` (Shrink), `home`, `nimm`, `release`, `aus`, `an`, `stop`, `halt`
 - English: `up`, `down`, `left`, `right`, `home`, `grip`, `release`, `power on`, `power off`, `stop`
+- Motion aliases: `forward` (Stretch), `backward` (Shrink)
 - Rotation: `rotate grip left`, `rotate grip right`
 
 Voice output is optional and offline via `espeak-ng`. When `DOFBOT_VOICE_OUTPUT_ENABLED=1`, the LLM controller announces executed actions on the system audio output.

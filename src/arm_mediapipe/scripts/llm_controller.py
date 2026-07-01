@@ -48,6 +48,17 @@ SUPPORTED_ACTIONS = {
     "refresh",
 }
 
+CONTINUOUS_SPEECH_ACTIONS = {
+    "move_left",
+    "move_right",
+    "move_up",
+    "move_down",
+    "turn_left",
+    "turn_right",
+    "arm_stretch",
+    "arm_shrink",
+}
+
 
 class LLMController(Node):
     def __init__(self) -> None:
@@ -73,7 +84,7 @@ class LLMController(Node):
                 "Wenn unklar, waehle eine sichere Neutralaktion (arm_action mit action=refresh)."
             ),
         )
-        self.loop_period_s = max(0.2, self._env_or_config_float("DOFBOT_LLM_LOOP_PERIOD_S", "loop_period_s", 1.0))
+        self.loop_period_s = max(0.12, self._env_or_config_float("DOFBOT_LLM_LOOP_PERIOD_S", "loop_period_s", 0.15))
         self.request_timeout_s = max(0.1, self._env_or_config_float("DOFBOT_LLM_REQUEST_TIMEOUT_S", "request_timeout_s", 20.0))
         self.request_retries = max(1, int(self._env_or_config_float("DOFBOT_LLM_REQUEST_RETRIES", "request_retries", 3.0)))
         self.retry_backoff_s = max(0.0, self._env_or_config_float("DOFBOT_LLM_RETRY_BACKOFF_S", "retry_backoff_s", 1.0))
@@ -88,9 +99,16 @@ class LLMController(Node):
             "require_speech_prompt",
             True,
         )
-        self.wake_word = self._env_or_config_str("DOFBOT_WAKE_WORD", "wake_word", "hello")
+        speech_language = os.environ.get("DOFBOT_SPEECH_LANGUAGE", "").strip().lower()
+        default_wake_word = "karli" if speech_language.startswith("de") else "hello"
+        self.wake_word = self._env_or_config_str("DOFBOT_WAKE_WORD", "wake_word", default_wake_word)
         self.voice_output_enabled = self._env_or_config_bool("DOFBOT_VOICE_OUTPUT_ENABLED", "voice_output_enabled", False)
-        self.voice_output_voice = self._env_or_config_str("DOFBOT_VOICE_OUTPUT_VOICE", "voice_output_voice", "")
+        default_voice_output_voice = "de" if speech_language.startswith("de") else "en"
+        self.voice_output_voice = self._env_or_config_str(
+            "DOFBOT_VOICE_OUTPUT_VOICE",
+            "voice_output_voice",
+            default_voice_output_voice,
+        )
 
         self.latest_status: dict = {}
         self.latest_joint_state: Optional[JointState] = None
@@ -99,6 +117,7 @@ class LLMController(Node):
         self.latest_speech_prompt_time_s = 0.0
         self.last_sent_action = ""
         self.last_sent_time_s = 0.0
+        self.latched_motion_command: Optional[dict] = None
 
         self.command_publisher = self.create_publisher(String, LLM_COMMAND_TOPIC, 10)
         self.tool_call_publisher = self.create_publisher(String, TOOL_CALL_TOPIC, 10)
@@ -223,15 +242,18 @@ class LLMController(Node):
 
     def _tick(self) -> None:
         if not self.enabled:
+            self.latched_motion_command = None
             return
         if not self.latest_status:
             return
 
         mode = str(self.latest_status.get("control_mode", CONTROL_MODE_GUI)).upper()
         if mode not in (CONTROL_MODE_LLM, CONTROL_MODE_AUTO):
+            self.latched_motion_command = None
             return
 
         if not bool(self.latest_status.get("connected", False)):
+            self.latched_motion_command = None
             return
 
         now_s = time.time()
@@ -240,10 +262,16 @@ class LLMController(Node):
 
         speech_prompt = self._consume_active_speech_prompt(now_s)
         command = None
+        command_from_latched_motion = False
         if speech_prompt:
             command = self._speech_to_action(speech_prompt.lower().strip())
             if command:
                 self.get_logger().info(f"Speech command mapped directly: '{speech_prompt}' -> {command}")
+                self._update_latched_motion(command)
+
+        if command is None and self.latched_motion_command is not None:
+            command = dict(self.latched_motion_command)
+            command_from_latched_motion = True
 
         if command is None:
             if self.require_speech_prompt:
@@ -265,7 +293,8 @@ class LLMController(Node):
             self.tool_call_publisher.publish(message)
             self.last_sent_action = str(tool_call.get("tool", ""))
             self.last_sent_time_s = now_s
-            self._speak_action_feedback(self.last_sent_action)
+            if not command_from_latched_motion:
+                self._speak_action_feedback(self.last_sent_action)
             return
 
         action = str(command.get("action", "")).strip()
@@ -290,7 +319,23 @@ class LLMController(Node):
         self.command_publisher.publish(message)
         self.last_sent_action = action
         self.last_sent_time_s = now_s
-        self._speak_action_feedback(action)
+        if not command_from_latched_motion:
+            self._speak_action_feedback(action)
+
+    def _update_latched_motion(self, command: dict) -> None:
+        action = str(command.get("action", "")).strip()
+        if action == "refresh":
+            if self.latched_motion_command is not None:
+                self.get_logger().info("Latched speech motion cleared by halt/stop command")
+            self.latched_motion_command = None
+            return
+
+        if action in CONTINUOUS_SPEECH_ACTIONS:
+            self.latched_motion_command = dict(command)
+            self.get_logger().info(f"Latched speech motion active: {action}")
+            return
+
+        self.latched_motion_command = None
 
     def _to_tool_call(self, payload: dict, now_s: float) -> Optional[dict]:
         if not isinstance(payload, dict):
@@ -482,7 +527,7 @@ class LLMController(Node):
                 "Accepted command vocabulary includes German and English: "
                 "hoch/up, runter/down, links/left, rechts/right, stop/stopp/anhalten, "
                 "home/heim, nimm/grip/grab/take, release/open/loslassen, "
-                "rotate grip left, rotate grip right, aus/off, an/on. "
+                "vor/forward, zurueck/backward, rotate grip left, rotate grip right, aus/off, an/on. "
                 "If unclear, use refresh."
             )
         request_payload = {
@@ -608,13 +653,22 @@ class LLMController(Node):
         if not normalized:
             return None
 
+        normalized = (
+            normalized.replace("ä", "ae")
+            .replace("ö", "oe")
+            .replace("ü", "ue")
+            .replace("ß", "ss")
+        )
+
         # Keep only letters, digits and spaces; collapse whitespace.
         normalized = re.sub(r"[^a-z0-9\s]+", " ", normalized)
         normalized = re.sub(r"\s+", " ", normalized).strip()
 
+        exact_stop_phrases = {"stop", "stopp", "anhalten", "halt", "pause", "heute"}
+        if normalized in exact_stop_phrases:
+            return {"action": "refresh"}
+
         phrase_map = [
-            # Stop / emergency — highest priority
-            (("stop", "stopp", "anhalten", "halt", "freeze"), {"action": "refresh"}),
             # Power
             (("power off", "switch off", "shutdown", "ausschalten"), {"action": "power_off"}),
             (("power on", "switch on", "wake up", "activate", "einschalten"), {"action": "power_on"}),
@@ -649,9 +703,9 @@ class LLMController(Node):
             # Base rotation
             (("turn left", "rotate left", "drehen links"), {"action": "turn_left", "duration_ms": 450}),
             (("turn right", "rotate right", "drehen rechts"), {"action": "turn_right", "duration_ms": 450}),
-            # Arm stretch/shrink
-            (("stretch", "extend", "ausfahren", "strecken"), {"action": "arm_stretch"}),
-            (("shrink", "retract", "shorten", "einfahren", "zurueck"), {"action": "arm_shrink"}),
+            # Arm stretch/shrink via spoken forward/backward commands
+            (("vor", "forward"), {"action": "arm_stretch"}),
+            (("zurueck", "backward"), {"action": "arm_shrink"}),
         ]
 
         for phrases, command in phrase_map:

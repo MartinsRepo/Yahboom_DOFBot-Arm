@@ -1,0 +1,4 @@
+Computer Vision / MediaPipe: Verfeinerung des Gesichts-Trackings oder Implementierung von Gestensteuerung/Objektverfolgung.
+LLM-Steuerung: Optimierung der System-Prompts, Tool-Definitionen oder Heuristiken im llm_controller.py.
+GUI / PyQt5: Erweiterung des Dashboards um zusätzliche Steuerelemente oder Statusanzeigen.
+Roboter-Steuerung: Kalibrierung, Definition neuer Bewegungsabläufe oder Presets in der Bridge.

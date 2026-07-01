@@ -73,8 +73,14 @@ def build_serial_device_candidates(preferred: str) -> list[str]:
 
 DEFAULT_DEVICE = resolve_default_device()
 DEFAULT_HOME_JOINTS = [90, 130, 0, 0, 90, 30]
-DEFAULT_MOVE_DURATION_MS = 500
+DEFAULT_MOVE_DURATION_MS = int(os.environ.get("DOFBOT_MOVE_DURATION_MS", "120"))
 DEFAULT_POLL_PERIOD = 0.25
+DEFAULT_BASE_STEP_DEG = float(os.environ.get("DOFBOT_BASE_STEP_DEG", "1.5"))
+DEFAULT_SHOULDER_STEP_DEG = float(os.environ.get("DOFBOT_SHOULDER_STEP_DEG", "1.5"))
+DEFAULT_WRIST_ROTATE_STEP_DEG = float(os.environ.get("DOFBOT_WRIST_ROTATE_STEP_DEG", "2.0"))
+DEFAULT_ARM_STRETCH_SHOULDER_STEP_DEG = float(os.environ.get("DOFBOT_ARM_STRETCH_SHOULDER_STEP_DEG", "1.5"))
+DEFAULT_ARM_STRETCH_ELBOW_STEP_DEG = float(os.environ.get("DOFBOT_ARM_STRETCH_ELBOW_STEP_DEG", "2.0"))
+DEFAULT_ARM_STRETCH_WRIST_STEP_DEG = float(os.environ.get("DOFBOT_ARM_STRETCH_WRIST_STEP_DEG", "2.0"))
 
 CONTROL_MODE_GUI = "GUI"
 CONTROL_MODE_LLM = "LLM"
@@ -115,6 +121,12 @@ class RoboArmBridge(Node):
         self.device = device
         self.move_duration_ms = max(100, int(move_duration_ms))
         self.poll_period = max(0.05, float(poll_period))
+        self.base_step_deg = max(0.5, float(DEFAULT_BASE_STEP_DEG))
+        self.shoulder_step_deg = max(0.5, float(DEFAULT_SHOULDER_STEP_DEG))
+        self.wrist_rotate_step_deg = max(0.5, float(DEFAULT_WRIST_ROTATE_STEP_DEG))
+        self.arm_stretch_shoulder_step_deg = max(0.5, float(DEFAULT_ARM_STRETCH_SHOULDER_STEP_DEG))
+        self.arm_stretch_elbow_step_deg = max(0.5, float(DEFAULT_ARM_STRETCH_ELBOW_STEP_DEG))
+        self.arm_stretch_wrist_step_deg = max(0.5, float(DEFAULT_ARM_STRETCH_WRIST_STEP_DEG))
 
         self.joint_names = [
             "base",
@@ -503,17 +515,17 @@ class RoboArmBridge(Node):
         elif action == "home":
             self.move_home()
         elif action == "move_left":
-            self.step_joint(1, 5)
+            self.step_joint(1, self.base_step_deg)
         elif action == "move_right":
-            self.step_joint(1, -5)
+            self.step_joint(1, -self.base_step_deg)
         elif action == "move_up":
-            self.step_joint(2, 5)
+            self.step_joint(2, self.shoulder_step_deg)
         elif action == "move_down":
-            self.step_joint(2, -5)
+            self.step_joint(2, -self.shoulder_step_deg)
         elif action == "turn_left":
-            self.step_joint(5, -8)
+            self.step_joint(5, -self.wrist_rotate_step_deg)
         elif action == "turn_right":
-            self.step_joint(5, 8)
+            self.step_joint(5, self.wrist_rotate_step_deg)
         elif action == "arm_stretch":
             self.arm_stretch()
         elif action == "arm_shrink":
@@ -592,9 +604,9 @@ class RoboArmBridge(Node):
             return
 
         targets = {
-            2: self._clamp(self.current_joints[1] - 5, 0, self.joint_limits[1]),
-            3: self._clamp(self.current_joints[2] + 6, 0, self.joint_limits[2]),
-            4: self._clamp(self.current_joints[3] + 6, 0, self.joint_limits[3]),
+            2: self._clamp(self.current_joints[1] - self.arm_stretch_shoulder_step_deg, 0, self.joint_limits[1]),
+            3: self._clamp(self.current_joints[2] + self.arm_stretch_elbow_step_deg, 0, self.joint_limits[2]),
+            4: self._clamp(self.current_joints[3] + self.arm_stretch_wrist_step_deg, 0, self.joint_limits[3]),
         }
         self._apply_multi_joint_targets(targets, "Arm stretched")
 
@@ -603,9 +615,9 @@ class RoboArmBridge(Node):
             return
 
         targets = {
-            2: self._clamp(self.current_joints[1] + 5, 0, self.joint_limits[1]),
-            3: self._clamp(self.current_joints[2] - 6, 0, self.joint_limits[2]),
-            4: self._clamp(self.current_joints[3] - 6, 0, self.joint_limits[3]),
+            2: self._clamp(self.current_joints[1] + self.arm_stretch_shoulder_step_deg, 0, self.joint_limits[1]),
+            3: self._clamp(self.current_joints[2] - self.arm_stretch_elbow_step_deg, 0, self.joint_limits[2]),
+            4: self._clamp(self.current_joints[3] - self.arm_stretch_wrist_step_deg, 0, self.joint_limits[3]),
         }
         self._apply_multi_joint_targets(targets, "Arm shrunk")
 
