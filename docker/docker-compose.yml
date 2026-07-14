@@ -3,6 +3,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      network: host
       args:
         FROM_IMAGE: ${FROM_IMAGE:-ros:jazzy-ros-base}
         OVERLAY_WS: /opt/ros/overlay_ws
