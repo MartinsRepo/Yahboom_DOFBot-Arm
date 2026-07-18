@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import html
+import os
 from dataclasses import dataclass
 from typing import Dict
 
@@ -16,6 +17,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
+    QSlider,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -28,6 +30,21 @@ FACE_DETECTION_TOPIC = '/mediapipe/face_detection_summary'
 SPEECH_INPUT_TOPIC = 'roboarm/speech_input'
 SPEECH_STATUS_TOPIC = 'roboarm/speech_status'
 CONTROL_MODES = ('GUI', 'LLM', 'AUTO')
+MOVE_DURATION_MIN_MS = 100
+MOVE_DURATION_MAX_MS = 1200
+SPEED_SLIDER_MIN = 1
+SPEED_SLIDER_MAX = 100
+
+
+def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(minimum, min(value, maximum))
 
 
 @dataclass
@@ -81,11 +98,27 @@ class RoboArmController(QMainWindow):
         self.speech_message = 'n/a'
         self.last_frame = None
         self._held_action: str | None = None
-        self._hold_repeat_initial_delay_ms = 220
-        self._hold_repeat_interval_ms = 110
+        self._hold_repeat_initial_delay_ms = _env_int(
+            'DOFBOT_HOLD_REPEAT_INITIAL_DELAY_MS',
+            default=260,
+            minimum=50,
+            maximum=2000,
+        )
+        self._hold_repeat_interval_ms = _env_int(
+            'DOFBOT_HOLD_REPEAT_INTERVAL_MS',
+            default=140,
+            minimum=40,
+            maximum=1000,
+        )
         self._hold_repeat_timer = QTimer(self)
         self._hold_repeat_timer.setSingleShot(True)
         self._hold_repeat_timer.timeout.connect(self._repeat_held_action)
+        self.move_duration_ms = _env_int(
+            'DOFBOT_MOVE_DURATION_MS',
+            default=120,
+            minimum=MOVE_DURATION_MIN_MS,
+            maximum=MOVE_DURATION_MAX_MS,
+        )
 
         self._build_ui()
 
@@ -190,6 +223,26 @@ class RoboArmController(QMainWindow):
 
         left_layout.addLayout(mid_layout)
 
+        speed_layout = QHBoxLayout()
+        speed_layout.addStretch()
+        self.speed_label = QLabel('Speed')
+        self.speed_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.speed_value_label = QLabel('')
+        self.speed_value_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.speed_slider = QSlider(Qt.Horizontal)
+        self.speed_slider.setMinimum(SPEED_SLIDER_MIN)
+        self.speed_slider.setMaximum(SPEED_SLIDER_MAX)
+        self.speed_slider.setFixedWidth(260)
+        self.speed_slider.setValue(self._duration_to_speed_value(self.move_duration_ms))
+        self._refresh_speed_labels()
+        speed_layout.addWidget(self.speed_label)
+        speed_layout.addSpacing(8)
+        speed_layout.addWidget(self.speed_slider)
+        speed_layout.addSpacing(8)
+        speed_layout.addWidget(self.speed_value_label)
+        speed_layout.addStretch()
+        left_layout.addLayout(speed_layout)
+
         bottom_layout = QHBoxLayout()
         self.btn_onoff = QPushButton("ON/OFF")
         self.btn_home = QPushButton("HOME")
@@ -271,13 +324,14 @@ class RoboArmController(QMainWindow):
         self._bind_hold_repeat(self.btn_right, 'move_right')
         self._bind_hold_repeat(self.btn_t_left, 'turn_left')
         self._bind_hold_repeat(self.btn_t_right, 'turn_right')
-        self.btn_stretch.clicked.connect(lambda: self._send_action('arm_stretch'))
-        self.btn_shrink.clicked.connect(lambda: self._send_action('arm_shrink'))
+        self._bind_hold_repeat(self.btn_stretch, 'arm_stretch')
+        self._bind_hold_repeat(self.btn_shrink, 'arm_shrink')
         self.btn_home.clicked.connect(lambda: self._send_action('home'))
         self.btn_refresh.clicked.connect(lambda: self._send_action('refresh'))
         self.btn_onoff.clicked.connect(self._toggle_power)
         self.btn_face_detection.clicked.connect(self._toggle_face_detection)
         self.btn_mode.clicked.connect(self._cycle_control_mode)
+        self.speed_slider.valueChanged.connect(self._handle_speed_slider_changed)
 
     def _bind_hold_repeat(self, button: QPushButton, action: str) -> None:
         button.pressed.connect(lambda act=action: self._start_hold_action(act))
@@ -297,6 +351,33 @@ class RoboArmController(QMainWindow):
     def _stop_hold_action(self) -> None:
         self._hold_repeat_timer.stop()
         self._held_action = None
+
+    def _duration_to_speed_value(self, duration_ms: int) -> int:
+        clamped = max(MOVE_DURATION_MIN_MS, min(int(duration_ms), MOVE_DURATION_MAX_MS))
+        ratio = (clamped - MOVE_DURATION_MIN_MS) / float(MOVE_DURATION_MAX_MS - MOVE_DURATION_MIN_MS)
+        speed = SPEED_SLIDER_MAX - int(round(ratio * (SPEED_SLIDER_MAX - SPEED_SLIDER_MIN)))
+        return max(SPEED_SLIDER_MIN, min(speed, SPEED_SLIDER_MAX))
+
+    def _speed_value_to_duration(self, speed_value: int) -> int:
+        clamped = max(SPEED_SLIDER_MIN, min(int(speed_value), SPEED_SLIDER_MAX))
+        ratio = (SPEED_SLIDER_MAX - clamped) / float(SPEED_SLIDER_MAX - SPEED_SLIDER_MIN)
+        duration = MOVE_DURATION_MIN_MS + int(round(ratio * (MOVE_DURATION_MAX_MS - MOVE_DURATION_MIN_MS)))
+        return max(MOVE_DURATION_MIN_MS, min(duration, MOVE_DURATION_MAX_MS))
+
+    def _refresh_speed_labels(self) -> None:
+        speed_value = self.speed_slider.value()
+        self.speed_value_label.setText(f"{speed_value}% ({self.move_duration_ms} ms)")
+
+    def _handle_speed_slider_changed(self, speed_value: int) -> None:
+        duration_ms = self._speed_value_to_duration(speed_value)
+        if duration_ms == self.move_duration_ms:
+            self._refresh_speed_labels()
+            return
+
+        self.move_duration_ms = duration_ms
+        self._refresh_speed_labels()
+        # Use refresh to apply a new default motion duration without triggering movement.
+        self._publish_command('refresh', duration_ms=self.move_duration_ms)
 
     def _cycle_control_mode(self) -> None:
         current_index = CONTROL_MODES.index(self.control_mode) if self.control_mode in CONTROL_MODES else 0
@@ -360,6 +441,18 @@ class RoboArmController(QMainWindow):
         llm_active = self.control_mode in ('LLM', 'AUTO')
         last_command_source = str(payload.get('last_command_source', 'n/a'))
         last_command_action = str(payload.get('last_command_action', 'n/a'))
+        bridge_duration_ms = payload.get('move_duration_ms')
+        if bridge_duration_ms is not None:
+            try:
+                bridge_duration_int = max(MOVE_DURATION_MIN_MS, min(int(bridge_duration_ms), MOVE_DURATION_MAX_MS))
+                if bridge_duration_int != self.move_duration_ms:
+                    self.move_duration_ms = bridge_duration_int
+                    self.speed_slider.blockSignals(True)
+                    self.speed_slider.setValue(self._duration_to_speed_value(self.move_duration_ms))
+                    self.speed_slider.blockSignals(False)
+            except (TypeError, ValueError):
+                pass
+        self._refresh_speed_labels()
         last_spoken = self.last_spoken_command or 'n/a'
         last_heard = self.last_heard_speech or 'n/a'
 
@@ -376,6 +469,7 @@ class RoboArmController(QMainWindow):
             f"Last spoken command: {last_spoken}",
             f"Speech status: {self.speech_state}",
             f"Speech info: {self.speech_message}",
+            f"GUI speed: {self.speed_slider.value()}% ({self.move_duration_ms} ms)",
             f"Face detection: {'enabled' if self.face_detection_enabled else 'disabled'}",
             f"Face status: {face_status}",
             f"Center: x={center_x if center_x is not None else 'n/a'}, y={center_y if center_y is not None else 'n/a'}",
