@@ -16,8 +16,23 @@ This repository is Docker-only. The supported workflow is to build and run the R
 
 ## Build and run
 
+Quick Start profiles:
+
+| Profile | Speech | Voice | Command |
+|---|---|---|---|
+| German | de | de | `ENABLE_LLM_CONTROLLER=1 ENABLE_SPEECH_CONTROLLER=1 DOFBOT_CONTROL_MODE=AUTO DOFBOT_STRICT_SAFETY=1 DOFBOT_LLM_PROVIDER=ollama DOFBOT_OLLAMA_MODEL=llama3.1:8b DOFBOT_AUDIO_DEVICE=/dev/snd DOFBOT_SPEECH_DEVICE=HD-3000 DOFBOT_SPEECH_LANGUAGE=de DOFBOT_VOICE_OUTPUT_ENABLED=1 DOFBOT_VOICE_OUTPUT_VOICE=de ./start_robocontrol_container_gui.sh` |
+| English (US) | en | en-us | `ENABLE_LLM_CONTROLLER=1 ENABLE_SPEECH_CONTROLLER=1 DOFBOT_CONTROL_MODE=AUTO DOFBOT_STRICT_SAFETY=1 DOFBOT_LLM_PROVIDER=ollama DOFBOT_OLLAMA_MODEL=llama3.1:8b DOFBOT_AUDIO_DEVICE=/dev/snd DOFBOT_SPEECH_DEVICE=HD-3000 DOFBOT_SPEECH_LANGUAGE=en DOFBOT_VOICE_OUTPUT_ENABLED=1 DOFBOT_VOICE_OUTPUT_VOICE=en-us ./start_robocontrol_container_gui.sh` |
+
+German speech + German voice output:
+
 ```bash
-ENABLE_LLM_CONTROLLER=1 ENABLE_SPEECH_CONTROLLER=1 DOFBOT_CONTROL_MODE=AUTO DOFBOT_STRICT_SAFETY=1 DOFBOT_LLM_PROVIDER=ollama DOFBOT_OLLAMA_MODEL=llama3.1:8b DOFBOT_AUDIO_DEVICE=/dev/snd DOFBOT_SPEECH_DEVICE=HD-3000 DOFBOT_VOICE_OUTPUT_ENABLED=1 DOFBOT_VOICE_OUTPUT_VOICE=en-us ./start_robocontrol_container_gui.sh
+ENABLE_LLM_CONTROLLER=1 ENABLE_SPEECH_CONTROLLER=1 DOFBOT_CONTROL_MODE=AUTO DOFBOT_STRICT_SAFETY=1 DOFBOT_LLM_PROVIDER=ollama DOFBOT_OLLAMA_MODEL=llama3.1:8b DOFBOT_AUDIO_DEVICE=/dev/snd DOFBOT_SPEECH_DEVICE=HD-3000 DOFBOT_SPEECH_LANGUAGE=de DOFBOT_VOICE_OUTPUT_ENABLED=1 DOFBOT_VOICE_OUTPUT_VOICE=de ./start_robocontrol_container_gui.sh
+```
+
+English speech + English (US) voice output:
+
+```bash
+ENABLE_LLM_CONTROLLER=1 ENABLE_SPEECH_CONTROLLER=1 DOFBOT_CONTROL_MODE=AUTO DOFBOT_STRICT_SAFETY=1 DOFBOT_LLM_PROVIDER=ollama DOFBOT_OLLAMA_MODEL=llama3.1:8b DOFBOT_AUDIO_DEVICE=/dev/snd DOFBOT_SPEECH_DEVICE=HD-3000 DOFBOT_SPEECH_LANGUAGE=en DOFBOT_VOICE_OUTPUT_ENABLED=1 DOFBOT_VOICE_OUTPUT_VOICE=en-us ./start_robocontrol_container_gui.sh
 ```
 
 That command rebuilds the image, starts the ROS stack in the container, and opens the GUI on the host display through X11.
@@ -44,7 +59,9 @@ Create a runtime config file from the template:
 cp config/llm_controller.example.json config/llm_controller.json
 ```
 
-For LLM-assisted arm control with speech input, start the container with:
+For LLM-assisted arm control with speech input, start the container with one of the examples above.
+
+All-in-one German example (multi-line):
 
 ```bash
 ENABLE_LLM_CONTROLLER=1 \
@@ -55,8 +72,9 @@ DOFBOT_LLM_PROVIDER=ollama \
 DOFBOT_OLLAMA_MODEL=llama3.1:8b \
 DOFBOT_AUDIO_DEVICE=/dev/snd \
 DOFBOT_SPEECH_DEVICE=HD-3000 \
+DOFBOT_SPEECH_LANGUAGE=de \
 DOFBOT_VOICE_OUTPUT_ENABLED=1 \
-DOFBOT_VOICE_OUTPUT_VOICE=en-us \
+DOFBOT_VOICE_OUTPUT_VOICE=de \
 ./start_robocontrol_container_gui.sh
 ```
 
@@ -76,7 +94,7 @@ DOFBOT_LLM_REQUEST_RETRIES=3
 DOFBOT_LLM_RETRY_BACKOFF_S=1.0
 DOFBOT_LLM_FALLBACK_ON_ERROR=1
 DOFBOT_VOICE_OUTPUT_ENABLED=1
-DOFBOT_VOICE_OUTPUT_VOICE=       # optional espeak voice, e.g. en-us
+DOFBOT_VOICE_OUTPUT_VOICE=       # optional espeak voice, e.g. de or en-us
 DOFBOT_VOSK_MODEL_DIR=/opt/ros/overlay_ws/models/vosk-model-small-de-zamia-0.3
 DOFBOT_AUDIO_DEVICE=/dev/snd
 DOFBOT_SPEECH_DEVICE=HD-3000
@@ -85,6 +103,9 @@ DOFBOT_SPEECH_BLOCKSIZE=2000
 DOFBOT_SPEECH_LANGUAGE=de
 DOFBOT_SPEECH_TOPIC=roboarm/speech_input
 DOFBOT_SPEECH_FLUSH_SILENCE_S=0.8
+DOFBOT_MOVE_DURATION_MS=120
+DOFBOT_HOLD_REPEAT_INITIAL_DELAY_MS=260
+DOFBOT_HOLD_REPEAT_INTERVAL_MS=140
 ```
 
 The controller supports these providers:
@@ -117,17 +138,19 @@ If no speech is detected, set `DOFBOT_SPEECH_DEVICE` to a capture-device name su
 
 Speech activation works as a persistent command mode:
 
-- Say `Karli` to activate speech command mode.
+- Say the configured wake word (default German: `martin`, default English: `robby`) to activate speech command mode.
 - After activation, the arm accepts speech commands without repeating the wake word.
-- Motion commands run continuously until `Stop` or `Halt` is spoken.
-- Say `Stop` to leave speech command mode again.
+- Motion commands can run continuously.
+- Say `Halt` to stop motion only and keep speech command mode armed.
+- Say `Stop` (or `Stopp`) for full stop and leave speech command mode (back to listening).
 
 Supported speech commands include:
 
-- German: `hoch`, `runter`, `links`, `rechts`, `vor` (Stretch), `zurück` (Shrink), `home`, `nimm`, `release`, `aus`, `an`, `stop`, `halt`
-- English: `up`, `down`, `left`, `right`, `home`, `grip`, `release`, `power on`, `power off`, `stop`
+- German: `hoch`, `runter`, `links`, `rechts`, `vor` (Stretch), `zurück` (Shrink), `home`, `nimm`/`zu` (close), `gib`/`auf` (open), `aus`, `an`, `stop`, `stopp`, `halt`
+- English: `up`, `down`, `left`, `right`, `home`, `grip`, `release`, `power on`, `power off`, `stop`, `halt`
 - Motion aliases: `forward` (Stretch), `backward` (Shrink)
-- Rotation: `rotate grip left`, `rotate grip right`
+- Rotation (German): `dreh links`, `dreh rechts`
+- Rotation (English): `rotate grip left`, `rotate grip right`, `wrist left`, `wrist right`
 
 Voice output is optional and offline via `espeak-ng`. When `DOFBOT_VOICE_OUTPUT_ENABLED=1`, the LLM controller announces executed actions on the system audio output.
 
@@ -138,6 +161,12 @@ Mode behavior:
 - `AUTO`: both sources are allowed, and recent manual input suppresses LLM commands for a short window.
 
 The GUI has a `MODE` button to cycle through `GUI`, `LLM`, and `AUTO` at runtime.
+
+GUI motion controls:
+
+- Direction, gripper turn, stretch, and shrink buttons support press-and-hold continuous movement.
+- A speed slider in the GUI adjusts movement duration live.
+- Slider speed is mapped to bridge `move_duration_ms` (higher slider value means faster movement).
 
 ## Arm Control
 
