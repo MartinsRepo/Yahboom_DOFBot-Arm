@@ -35,12 +35,12 @@ else:
     VOSK_IMPORT_ERROR = None
 
 
-#DEFAULT_MODEL_DIR = "/opt/ros/overlay_ws/models/vosk-model-small-en-us-0.15"
-DEFAULT_MODEL_DIR = "/opt/ros/overlay_ws/models/vosk-model-small-de-zamia-0.3"
+DEFAULT_MODEL_DIR = "/opt/ros/overlay_ws/models/vosk-model-small-en-us-0.15"
+#DEFAULT_MODEL_DIR = "/opt/ros/overlay_ws/models/vosk-model-small-de-zamia-0.3"
 DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_BLOCKSIZE = 8192
 DEFAULT_TOPIC = "roboarm/speech_input"
-DEFAULT_WAKE_WORD_EN = "charlie"
+DEFAULT_WAKE_WORD_EN = "robby"
 DEFAULT_WAKE_WORD_DE = "martin"
 DEFAULT_STOP_ALIASES = {"heute"}
 DEFAULT_FLUSH_SILENCE_S = 0.8
@@ -55,56 +55,42 @@ CONTROL_MODE_GUI = "GUI"
 # dramatically for command-and-control use cases.
 COMMAND_GRAMMAR_DE = [
     # Wake words
-    "martin", "karli",
+    "martin",
     # Directions
     "hoch", "runter", "links", "rechts",
-    "nach oben", "nach unten",
     # Stretch / shrink
     "vor", "zurück",
     # Home
-    "home", "heim", "grundstellung",
+    "home", 
     # Gripper
-    "nimm", "nehmen", "greifen", "greifer",
-    "loslassen", "öffnen", "auf", "zu",
-    "greifer auf", "greifer zu",
-    # Rotation
-    "drehe", "drehen",
-    "drehe greifer links", "drehe greifer rechts",
-    "greifer links drehen", "greifer rechts drehen",
-    # Power
-    "aus", "an", "ausschalten", "einschalten",
+    "nimm", "gib",
+    "auf", "zu",
+    # Rotation gripper
+    "dreh links", "dreh rechts",
+    # Stop arm motion
+    "halt", 
     # Stop
-    "stop", "stopp", "halt", "anhalten", "pause", "heute",
+    "stop", "stopp", 
     # Catch-all for unrecognised speech
     "[unk]",
 ]
 
 COMMAND_GRAMMAR_EN = [
     # Wake words
-    "hello", "charlie",
+    "robby",
     # Directions
     "up", "down", "left", "right",
-    "move up", "move down", "move left", "move right",
-    "go up", "go down", "go left", "go right",
     # Stretch / shrink
     "forward", "backward",
     # Home
-    "home", "go home", "reset",
+    "home",
     # Gripper
     "grip", "grab", "take", "open", "close", "release",
-    "open gripper", "close gripper",
-    "grip open", "grip close",
     # Rotation
-    "rotate", "turn", "wrist", "gripper",
-    "rotate grip left", "rotate grip right",
     "wrist left", "wrist right",
     "turn left", "turn right",
-    # Power
-    "power on", "power off",
-    "switch on", "switch off",
-    "wake up", "activate", "shutdown",
     # Stop
-    "stop", "halt", "pause",
+    "stop", "halt",
     # Catch-all for unrecognised speech
     "[unk]",
 ]
@@ -296,6 +282,10 @@ class SpeechInputNode(Node):
                     self.voice_command_mode_active = False
                     self._publish_status("listening", "voice command mode disabled by stop")
                     return
+                if self._is_halt_phrase(cleaned):
+                    self._emit_transcript("halt", is_final=True)
+                    self._publish_status("armed", "motion halted; voice command mode remains active")
+                    return
                 self._emit_transcript(cleaned, is_final=True)
                 self._publish_status("armed", f"voice command mode active; prompt={cleaned}")
                 return
@@ -308,6 +298,11 @@ class SpeechInputNode(Node):
                 self._emit_transcript("stop", is_final=True)
                 self.voice_command_mode_active = False
                 self._publish_status("listening", "voice command mode disabled by stop")
+                return
+
+            if self._is_halt_phrase(normalized):
+                self._emit_transcript("halt", is_final=True)
+                self._publish_status("armed", "motion halted; voice command mode remains active")
                 return
 
             self._emit_transcript(normalized, is_final=True)
@@ -358,13 +353,19 @@ class SpeechInputNode(Node):
         stop_phrases = {
             "stop",
             "stopp",
-            "anhalten",
+        }
+        return normalized in stop_phrases
+
+    def _is_halt_phrase(self, text: str) -> bool:
+        normalized = str(text).strip().lower()
+        halt_phrases = {
             "halt",
+            "anhalten",
             "pause",
         }
         if self.language.startswith("de") and normalized in DEFAULT_STOP_ALIASES:
             return True
-        return normalized in stop_phrases
+        return normalized in halt_phrases
 
     def _drain_final_result(self) -> None:
         if self.recognizer is None:

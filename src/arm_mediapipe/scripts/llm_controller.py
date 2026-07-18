@@ -664,8 +664,12 @@ class LLMController(Node):
         normalized = re.sub(r"[^a-z0-9\s]+", " ", normalized)
         normalized = re.sub(r"\s+", " ", normalized).strip()
 
-        exact_stop_phrases = {"stop", "stopp", "anhalten", "halt", "pause", "heute"}
-        if normalized in exact_stop_phrases:
+        exact_full_stop_phrases = {"stop", "stopp"}
+        if normalized in exact_full_stop_phrases:
+            return {"action": "power_off"}
+
+        exact_halt_phrases = {"halt", "anhalten", "pause", "heute"}
+        if normalized in exact_halt_phrases:
             return {"action": "refresh"}
 
         phrase_map = [
@@ -679,17 +683,19 @@ class LLMController(Node):
             (("home", "go home", "reset", "heim", "grundstellung"), {"action": "home"}),
             # Gripper rotation (must come BEFORE generic turn/grip to avoid override)
             (("rotate grip left", "wrist left", "gripper left",
-              "drehe greifer links", "greifer links drehen"), {"action": "turn_left", "duration_ms": 450}),
+                            "drehe greifer links", "greifer links drehen", "greifer links",
+                            "rotlinks", "dreh links", "links drehen"), {"action": "turn_left", "duration_ms": 450}),
             (("rotate grip right", "wrist right", "gripper right",
-              "drehe greifer rechts", "greifer rechts drehen"), {"action": "turn_right", "duration_ms": 450}),
+                            "drehe greifer rechts", "greifer rechts drehen", "greifer rechts",
+                            "rotrechts", "dreh rechts", "rechts drehen"), {"action": "turn_right", "duration_ms": 450}),
             # Gripper open/close
             (("open gripper", "open grip", "grip open", "open the hand",
-              "release", "loslassen", "greifer auf"), {"action": "grip_open"}),
+                            "release", "loslassen", "greifer auf", "gib"), {"action": "grip_open"}),
             (("close gripper", "close grip", "grip close", "close the hand",
               "grab", "take", "nimm", "nehmen", "greifen", "greifer zu"), {"action": "grip_close"}),
             # Single-word open/close (after multi-word to avoid shadowing)
-            (("oeffnen",), {"action": "grip_open"}),
-            (("greifen", "grip"), {"action": "grip_close"}),
+                        (("oeffnen", "auf"), {"action": "grip_open"}),
+                        (("greifen", "grip", "zu"), {"action": "grip_close"}),
             # Arm motion
             (("move left", "go left", "links"), {"action": "move_left", "duration_ms": 400}),
             (("move right", "go right", "rechts"), {"action": "move_right", "duration_ms": 400}),

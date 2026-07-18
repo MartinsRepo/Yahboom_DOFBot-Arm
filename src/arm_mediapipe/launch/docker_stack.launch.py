@@ -66,7 +66,7 @@ def generate_launch_description():
         DeclareLaunchArgument('speech_language', default_value='de'),
         DeclareLaunchArgument('speech_topic', default_value='roboarm/speech_input'),
         DeclareLaunchArgument('speech_flush_silence_s', default_value='0.4'),
-        DeclareLaunchArgument('wake_word', default_value='karli'),
+        DeclareLaunchArgument('wake_word', default_value='martin'),
         DeclareLaunchArgument('wake_word_timeout_s', default_value='4.0'),
 
         Node(
