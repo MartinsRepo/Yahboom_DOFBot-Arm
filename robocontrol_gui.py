@@ -80,6 +80,12 @@ class RoboArmController(QMainWindow):
         self.speech_state = 'n/a'
         self.speech_message = 'n/a'
         self.last_frame = None
+        self._held_action: str | None = None
+        self._hold_repeat_initial_delay_ms = 220
+        self._hold_repeat_interval_ms = 110
+        self._hold_repeat_timer = QTimer(self)
+        self._hold_repeat_timer.setSingleShot(True)
+        self._hold_repeat_timer.timeout.connect(self._repeat_held_action)
 
         self._build_ui()
 
@@ -259,12 +265,12 @@ class RoboArmController(QMainWindow):
     def _connect_signals(self) -> None:
         self.btn_open.clicked.connect(lambda: self._send_action('grip_open'))
         self.btn_close.clicked.connect(lambda: self._send_action('grip_close'))
-        self.btn_up.clicked.connect(lambda: self._send_action('move_up'))
-        self.btn_down.clicked.connect(lambda: self._send_action('move_down'))
-        self.btn_left.clicked.connect(lambda: self._send_action('move_left'))
-        self.btn_right.clicked.connect(lambda: self._send_action('move_right'))
-        self.btn_t_left.clicked.connect(lambda: self._send_action('turn_left'))
-        self.btn_t_right.clicked.connect(lambda: self._send_action('turn_right'))
+        self._bind_hold_repeat(self.btn_up, 'move_up')
+        self._bind_hold_repeat(self.btn_down, 'move_down')
+        self._bind_hold_repeat(self.btn_left, 'move_left')
+        self._bind_hold_repeat(self.btn_right, 'move_right')
+        self._bind_hold_repeat(self.btn_t_left, 'turn_left')
+        self._bind_hold_repeat(self.btn_t_right, 'turn_right')
         self.btn_stretch.clicked.connect(lambda: self._send_action('arm_stretch'))
         self.btn_shrink.clicked.connect(lambda: self._send_action('arm_shrink'))
         self.btn_home.clicked.connect(lambda: self._send_action('home'))
@@ -272,6 +278,25 @@ class RoboArmController(QMainWindow):
         self.btn_onoff.clicked.connect(self._toggle_power)
         self.btn_face_detection.clicked.connect(self._toggle_face_detection)
         self.btn_mode.clicked.connect(self._cycle_control_mode)
+
+    def _bind_hold_repeat(self, button: QPushButton, action: str) -> None:
+        button.pressed.connect(lambda act=action: self._start_hold_action(act))
+        button.released.connect(self._stop_hold_action)
+
+    def _start_hold_action(self, action: str) -> None:
+        self._held_action = action
+        self._send_action(action)
+        self._hold_repeat_timer.start(self._hold_repeat_initial_delay_ms)
+
+    def _repeat_held_action(self) -> None:
+        if not self._held_action:
+            return
+        self._send_action(self._held_action)
+        self._hold_repeat_timer.start(self._hold_repeat_interval_ms)
+
+    def _stop_hold_action(self) -> None:
+        self._hold_repeat_timer.stop()
+        self._held_action = None
 
     def _cycle_control_mode(self) -> None:
         current_index = CONTROL_MODES.index(self.control_mode) if self.control_mode in CONTROL_MODES else 0
@@ -529,6 +554,7 @@ class RoboArmController(QMainWindow):
         painter.end()
 
     def closeEvent(self, event) -> None:
+        self._stop_hold_action()
         self.spin_timer.stop()
         if hasattr(self, "node") and self.node is not None:
             self.node.destroy_node()
