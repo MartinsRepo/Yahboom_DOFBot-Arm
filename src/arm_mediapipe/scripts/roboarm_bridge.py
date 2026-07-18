@@ -138,6 +138,7 @@ class RoboArmBridge(Node):
         ]
         self.joint_limits = [180, 180, 180, 180, 270, 180]
         self.current_joints = list(DEFAULT_HOME_JOINTS)
+        self.commanded_joints = list(DEFAULT_HOME_JOINTS)
         self.last_deltas = [0.0] * 6
         self.last_speeds = [0.0] * 6
         self.last_accels = [0.0] * 6
@@ -243,6 +244,7 @@ class RoboArmBridge(Node):
                 self.status_text = "Connected"
                 self._enable_servo_bus()
                 self._read_current_joints()
+                self.commanded_joints = list(self.current_joints)
                 self.get_logger().info(f"Selected serial device: {self.device}")
                 self.get_logger().info(f"Connected to arm on {self.device}")
                 return True
@@ -563,6 +565,7 @@ class RoboArmBridge(Node):
         try:
             self.arm.Arm_serial_servo_write6_array(target_joints, self.move_duration_ms)
             self.current_joints = [float(value) for value in target_joints]
+            self.commanded_joints = [float(value) for value in target_joints]
             self._record_motion(deltas)
             self.last_error = ""
             self.status_text = "Home command sent"
@@ -575,7 +578,7 @@ class RoboArmBridge(Node):
         if not self._ensure_motion_allowed(f"step joint {servo_id}"):
             return
 
-        current = self.current_joints[servo_id - 1]
+        current = self.commanded_joints[servo_id - 1]
         target = self._clamp(current + delta, 0, self.joint_limits[servo_id - 1])
         self.move_joint_to(servo_id, target)
 
@@ -589,6 +592,7 @@ class RoboArmBridge(Node):
         try:
             self.arm.Arm_serial_servo_write(servo_id, int(round(bounded)), self.move_duration_ms)
             self.current_joints[servo_id - 1] = float(bounded)
+            self.commanded_joints[servo_id - 1] = float(bounded)
             deltas = [0.0] * 6
             deltas[servo_id - 1] = delta
             self._record_motion(deltas)
@@ -604,9 +608,9 @@ class RoboArmBridge(Node):
             return
 
         targets = {
-            2: self._clamp(self.current_joints[1] - self.arm_stretch_shoulder_step_deg, 0, self.joint_limits[1]),
-            3: self._clamp(self.current_joints[2] + self.arm_stretch_elbow_step_deg, 0, self.joint_limits[2]),
-            4: self._clamp(self.current_joints[3] + self.arm_stretch_wrist_step_deg, 0, self.joint_limits[3]),
+            2: self._clamp(self.commanded_joints[1] - self.arm_stretch_shoulder_step_deg, 0, self.joint_limits[1]),
+            3: self._clamp(self.commanded_joints[2] + self.arm_stretch_elbow_step_deg, 0, self.joint_limits[2]),
+            4: self._clamp(self.commanded_joints[3] + self.arm_stretch_wrist_step_deg, 0, self.joint_limits[3]),
         }
         self._apply_multi_joint_targets(targets, "Arm stretched")
 
@@ -615,9 +619,9 @@ class RoboArmBridge(Node):
             return
 
         targets = {
-            2: self._clamp(self.current_joints[1] + self.arm_stretch_shoulder_step_deg, 0, self.joint_limits[1]),
-            3: self._clamp(self.current_joints[2] - self.arm_stretch_elbow_step_deg, 0, self.joint_limits[2]),
-            4: self._clamp(self.current_joints[3] - self.arm_stretch_wrist_step_deg, 0, self.joint_limits[3]),
+            2: self._clamp(self.commanded_joints[1] + self.arm_stretch_shoulder_step_deg, 0, self.joint_limits[1]),
+            3: self._clamp(self.commanded_joints[2] - self.arm_stretch_elbow_step_deg, 0, self.joint_limits[2]),
+            4: self._clamp(self.commanded_joints[3] - self.arm_stretch_wrist_step_deg, 0, self.joint_limits[3]),
         }
         self._apply_multi_joint_targets(targets, "Arm shrunk")
 
@@ -630,10 +634,11 @@ class RoboArmBridge(Node):
         deltas = [0.0] * 6
         try:
             for servo_id, target in targets.items():
-                current = self.current_joints[servo_id - 1]
+                current = self.commanded_joints[servo_id - 1]
                 deltas[servo_id - 1] = target - current
                 self.arm.Arm_serial_servo_write(servo_id, int(round(target)), self.move_duration_ms)
                 self.current_joints[servo_id - 1] = float(target)
+                self.commanded_joints[servo_id - 1] = float(target)
             self._record_motion(deltas)
             self.last_error = ""
             self.status_text = success_status

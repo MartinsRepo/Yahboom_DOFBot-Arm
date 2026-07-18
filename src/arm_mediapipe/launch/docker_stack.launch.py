@@ -3,7 +3,7 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
-from launch.substitutions import EnvironmentVariable, LaunchConfiguration
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
@@ -127,7 +127,15 @@ def generate_launch_description():
             executable='speech_input.py',
             name='speech_input',
             output='screen',
-            condition=IfCondition(enable_speech_controller),
+            condition=IfCondition(
+                PythonExpression([
+                    "'",
+                    enable_speech_controller,
+                    "'.lower() in ('1', 'true', 'yes', 'on') and '",
+                    control_mode,
+                    "'.upper() != 'GUI'",
+                ])
+            ),
             additional_env={
                 'DOFBOT_VOSK_MODEL_DIR': vosk_model_dir,
                 'DOFBOT_SPEECH_DEVICE': speech_device,

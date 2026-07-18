@@ -47,6 +47,7 @@ DEFAULT_FLUSH_SILENCE_S = 0.8
 DEFAULT_QUEUE_SIZE = 128
 DEFAULT_STREAM_START_TIMEOUT_S = 4.0
 DEFAULT_STREAM_RETRY_DELAY_S = 1.0
+CONTROL_MODE_GUI = "GUI"
 
 # Restricted command vocabularies for Vosk grammar mode.
 # By narrowing the search space to only known commands, the recognizer
@@ -164,6 +165,7 @@ class SpeechInputNode(Node):
         self.audio_queue: queue.Queue[bytes] = queue.Queue(maxsize=self.max_queue_size)
         self.transcript_publisher = self.create_publisher(String, self.transcript_topic, 10)
         self.status_publisher = self.create_publisher(String, "roboarm/speech_status", 10)
+        self.create_subscription(String, "roboarm/status", self._handle_bridge_status, 10)
 
         self.model: Optional[Model] = None
         self.recognizer: Optional[KaldiRecognizer] = None
@@ -175,6 +177,8 @@ class SpeechInputNode(Node):
         self.awaiting_prompt_until_s = 0.0
         self.wake_word_armed = False
         self.voice_command_mode_active = False
+        self.control_mode = os.environ.get("DOFBOT_CONTROL_MODE", CONTROL_MODE_GUI).strip().upper() or CONTROL_MODE_GUI
+        self.mode_pause_reported = False
 
         self._publish_status("starting", "initializing")
         if not self.enabled:
@@ -198,6 +202,27 @@ class SpeechInputNode(Node):
         self._publish_status("listening", f"model={self.model_dir} device={self.device or 'default'} rate={self.sample_rate}")
         self.get_logger().info(f"Speech input enabled with Vosk model at {self.model_dir}")
 
+    def _handle_bridge_status(self, message: String) -> None:
+        try:
+            payload = json.loads(message.data)
+        except json.JSONDecodeError:
+            return
+
+        if not isinstance(payload, dict):
+            return
+
+        mode = str(payload.get("control_mode", "")).strip().upper()
+        if not mode:
+            return
+
+        previous_mode = self.control_mode
+        self.control_mode = mode
+        if previous_mode != mode:
+            self.get_logger().info(f"Speech control mode updated: {previous_mode} -> {mode}")
+
+    def _capture_allowed(self) -> bool:
+        return self.control_mode != CONTROL_MODE_GUI
+
     def _publish_status(self, state: str, message: str) -> None:
         payload = {
             "state": state,
@@ -211,7 +236,7 @@ class SpeechInputNode(Node):
         self.status_publisher.publish(status)
 
     def _audio_callback(self, indata, frames, time_info, status) -> None:  # noqa: D401 - sounddevice callback signature
-        if self.stop_event.is_set():
+        if self.stop_event.is_set() or not self._capture_allowed():
             return
         try:
             chunk = bytes(indata)
@@ -385,6 +410,8 @@ class SpeechInputNode(Node):
             opened_at_s = time.time()
             silence_deadline = 0.0
             while not self.stop_event.is_set():
+                if not self._capture_allowed():
+                    break
                 try:
                     data = self.audio_queue.get(timeout=0.2)
                 except queue.Empty:
@@ -419,6 +446,24 @@ class SpeechInputNode(Node):
         attempt = 0
         try:
             while not self.stop_event.is_set():
+                if not self._capture_allowed():
+                    if not self.mode_pause_reported:
+                        self._publish_status("paused", f"speech capture paused in control mode '{self.control_mode}'")
+                        self.get_logger().info(
+                            f"Speech capture paused while control mode is '{self.control_mode}'"
+                        )
+                        self.mode_pause_reported = True
+                    self._clear_audio_queue()
+                    self.stop_event.wait(0.25)
+                    continue
+
+                if self.mode_pause_reported:
+                    self._publish_status("listening", f"speech capture resumed in control mode '{self.control_mode}'")
+                    self.get_logger().info(
+                        f"Speech capture resumed while control mode is '{self.control_mode}'"
+                    )
+                    self.mode_pause_reported = False
+
                 attempt += 1
                 self._clear_audio_queue()
                 self._reset_recognizer()
