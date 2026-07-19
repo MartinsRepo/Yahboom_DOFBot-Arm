@@ -94,6 +94,7 @@ class RoboArmController(QMainWindow):
         self.latest_status_payload: dict = {}
         self.face_summary = FaceSummary(keypoints={})
         self.face_detection_enabled = False
+        self.gesture_control_enabled = False
         self.control_mode = 'GUI'
         self.last_spoken_command = ''
         self.last_heard_speech = ''
@@ -271,13 +272,16 @@ class RoboArmController(QMainWindow):
         top_buttons_layout.addWidget(self.btn_mode)
         top_buttons_layout.addStretch()
         
-        # Bottom row: FACE DETECTION
+        # Bottom row: FACE DETECTION and GESTURE CONTROL
         bottom_buttons_layout = QHBoxLayout()
         self.btn_face_detection = QPushButton("FACE DETECTION OFF")
         self.btn_face_detection.setStyleSheet(button_3d_style)
+        self.btn_gesture_control = QPushButton("GESTURE CONTROL OFF")
+        self.btn_gesture_control.setStyleSheet(button_3d_style)
         
         bottom_buttons_layout.addStretch()
         bottom_buttons_layout.addWidget(self.btn_face_detection)
+        bottom_buttons_layout.addWidget(self.btn_gesture_control)
         bottom_buttons_layout.addStretch()
         
         bottom_layout.addLayout(top_buttons_layout)
@@ -376,6 +380,7 @@ class RoboArmController(QMainWindow):
         self.btn_refresh.clicked.connect(lambda: self._send_action('refresh'))
         self.btn_onoff.clicked.connect(self._toggle_power)
         self.btn_face_detection.clicked.connect(self._toggle_face_detection)
+        self.btn_gesture_control.clicked.connect(self._toggle_gesture_control)
         self.btn_mode.clicked.connect(self._cycle_control_mode)
         self.speed_slider.valueChanged.connect(self._handle_speed_slider_changed)
 
@@ -443,6 +448,10 @@ class RoboArmController(QMainWindow):
         self._publish_face_detection_state(self.face_detection_enabled)
         self._refresh_displays()
 
+    def _toggle_gesture_control(self) -> None:
+        self.gesture_control_enabled = not self.gesture_control_enabled
+        self._refresh_displays()
+
     def _refresh_displays(self) -> None:
         payload = self.latest_status_payload if isinstance(self.latest_status_payload, dict) else {}
         servos = payload.get('servos', []) if isinstance(payload.get('servos', []), list) else []
@@ -474,6 +483,9 @@ class RoboArmController(QMainWindow):
         self.btn_onoff.setText("OFF" if self.status.active else "ON")
         self.btn_face_detection.setText(
             "FACE DETECTION ON" if self.face_detection_enabled else "FACE DETECTION OFF"
+        )
+        self.btn_gesture_control.setText(
+            "GESTURE CONTROL ON" if self.gesture_control_enabled else "GESTURE CONTROL OFF"
         )
         self.btn_mode.setText(f"MODE: {self.control_mode}")
 
@@ -517,6 +529,7 @@ class RoboArmController(QMainWindow):
             f"Speech info: {self.speech_message}",
             f"GUI speed: {self.speed_slider.value()}% ({self.move_duration_ms} ms)",
             f"Face detection: {'enabled' if self.face_detection_enabled else 'disabled'}",
+            f"Gesture control: {'enabled' if self.gesture_control_enabled else 'disabled'}",
             f"Face status: {face_status}",
             f"Center: x={center_x if center_x is not None else 'n/a'}, y={center_y if center_y is not None else 'n/a'}",
             f"BBox: w={bbox_w if bbox_w is not None else 'n/a'}, h={bbox_h if bbox_h is not None else 'n/a'}",
