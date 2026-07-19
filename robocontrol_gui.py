@@ -145,17 +145,20 @@ class RoboArmController(QMainWindow):
         self.pos_display.setReadOnly(True)
         self.pos_display.setStyleSheet(text_style)
         self.pos_display.setPlaceholderText("SERVO1 ANGLE / POS\\nSERVO2 ANGLE / POS\\n...")
+        self.pos_display.setMaximumHeight(100)
 
         self.speed_display = QTextEdit()
         self.speed_display.setReadOnly(True)
         self.speed_display.setStyleSheet(text_style)
         self.speed_display.setPlaceholderText("SERVO1 SPEED / ACC\\nSERVO2 SPEED / ACC\\n...")
+        self.speed_display.setMaximumHeight(100)
 
         top_layout.addWidget(self.pos_display)
         top_layout.addWidget(self.speed_display)
         left_layout.addLayout(top_layout)
 
         mid_layout = QGridLayout()
+        mid_layout.setRowMinimumHeight(0, 20)
 
         button_3d_style = """
             QPushButton {
@@ -186,7 +189,7 @@ class RoboArmController(QMainWindow):
         grip_open_layout.addWidget(self.btn_open)
         grip_open_layout.addWidget(label_grip)
         grip_open_layout.addWidget(self.btn_close)
-        mid_layout.addLayout(grip_open_layout, 1, 0)
+        mid_layout.addLayout(grip_open_layout, 2, 0)
 
         self.btn_up = QPushButton("Up")
         self.btn_down = QPushButton("Down")
@@ -195,10 +198,10 @@ class RoboArmController(QMainWindow):
         for btn in [self.btn_up, self.btn_down, self.btn_left, self.btn_right]:
             btn.setStyleSheet(circle_button_style)
 
-        mid_layout.addWidget(self.btn_up, 0, 2, Qt.AlignCenter)
-        mid_layout.addWidget(self.btn_left, 1, 1, Qt.AlignCenter)
-        mid_layout.addWidget(self.btn_right, 1, 3, Qt.AlignCenter)
-        mid_layout.addWidget(self.btn_down, 2, 2, Qt.AlignCenter)
+        mid_layout.addWidget(self.btn_up, 1, 2, Qt.AlignCenter)
+        mid_layout.addWidget(self.btn_left, 2, 1, Qt.AlignCenter)
+        mid_layout.addWidget(self.btn_right, 2, 3, Qt.AlignCenter)
+        mid_layout.addWidget(self.btn_down, 3, 2, Qt.AlignCenter)
 
         grip_turn_layout = QVBoxLayout()
         label_turn = QLabel("GRIP TURN LEFT/\\nRIGHT")
@@ -210,7 +213,7 @@ class RoboArmController(QMainWindow):
         grip_turn_layout.addWidget(self.btn_t_right)
         grip_turn_layout.addWidget(label_turn)
         grip_turn_layout.addWidget(self.btn_t_left)
-        mid_layout.addLayout(grip_turn_layout, 1, 4)
+        mid_layout.addLayout(grip_turn_layout, 2, 4)
 
         arm_size_layout = QVBoxLayout()
         label_size = QLabel("ARM SIZE")
@@ -222,9 +225,10 @@ class RoboArmController(QMainWindow):
         arm_size_layout.addWidget(self.btn_stretch)
         arm_size_layout.addWidget(label_size)
         arm_size_layout.addWidget(self.btn_shrink)
-        mid_layout.addLayout(arm_size_layout, 1, 2)
+        mid_layout.addLayout(arm_size_layout, 2, 2)
 
         left_layout.addLayout(mid_layout)
+        left_layout.addSpacing(-10)
 
         speed_layout = QHBoxLayout()
         speed_layout.addStretch()
@@ -246,26 +250,38 @@ class RoboArmController(QMainWindow):
         speed_layout.addStretch()
         left_layout.addLayout(speed_layout)
 
-        bottom_layout = QHBoxLayout()
+        bottom_layout = QVBoxLayout()
+        
+        # Top row: ON/OFF, HOME, REFRESH, MODE
+        top_buttons_layout = QHBoxLayout()
         self.btn_onoff = QPushButton("ON/OFF")
         self.btn_home = QPushButton("HOME")
         self.btn_refresh = QPushButton("REFRESH")
-        self.btn_face_detection = QPushButton("FACE DETECTION OFF")
         self.btn_mode = QPushButton("MODE: GUI")
 
         self.btn_onoff.setStyleSheet(button_3d_style + "QPushButton { background-color: #ffcccc; }")
         self.btn_home.setStyleSheet(button_3d_style)
         self.btn_refresh.setStyleSheet(button_3d_style)
-        self.btn_face_detection.setStyleSheet(button_3d_style)
         self.btn_mode.setStyleSheet(button_3d_style)
 
-        bottom_layout.addStretch()
-        bottom_layout.addWidget(self.btn_onoff)
-        bottom_layout.addWidget(self.btn_home)
-        bottom_layout.addWidget(self.btn_refresh)
-        bottom_layout.addWidget(self.btn_face_detection)
-        bottom_layout.addWidget(self.btn_mode)
-        bottom_layout.addStretch()
+        top_buttons_layout.addStretch()
+        top_buttons_layout.addWidget(self.btn_onoff)
+        top_buttons_layout.addWidget(self.btn_home)
+        top_buttons_layout.addWidget(self.btn_refresh)
+        top_buttons_layout.addWidget(self.btn_mode)
+        top_buttons_layout.addStretch()
+        
+        # Bottom row: FACE DETECTION
+        bottom_buttons_layout = QHBoxLayout()
+        self.btn_face_detection = QPushButton("FACE DETECTION OFF")
+        self.btn_face_detection.setStyleSheet(button_3d_style)
+        
+        bottom_buttons_layout.addStretch()
+        bottom_buttons_layout.addWidget(self.btn_face_detection)
+        bottom_buttons_layout.addStretch()
+        
+        bottom_layout.addLayout(top_buttons_layout)
+        bottom_layout.addLayout(bottom_buttons_layout)
         left_layout.addLayout(bottom_layout)
 
         right_layout = QVBoxLayout()
@@ -313,12 +329,12 @@ class RoboArmController(QMainWindow):
         self.status_label = QLabel("Bridge status: waiting for data")
         self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setWordWrap(True)
-        self.status_label.setFixedWidth(652)
+        self.status_label.setFixedWidth(346)
 
         self.error_label = QLabel("")
         self.error_label.setAlignment(Qt.AlignCenter)
         self.error_label.setWordWrap(True)
-        self.error_label.setFixedWidth(652)
+        self.error_label.setFixedWidth(346)
         self.error_label.setStyleSheet("color: #d9534f;")
 
         text_output_title = QLabel('Text Output')
@@ -327,8 +343,8 @@ class RoboArmController(QMainWindow):
 
         self.text_output_display = QTextEdit()
         self.text_output_display.setReadOnly(True)
-        self.text_output_display.setFixedWidth(652)
-        self.text_output_display.setMinimumHeight(160)
+        self.text_output_display.setFixedWidth(346)
+        self.text_output_display.setMinimumHeight(100)
         self.text_output_display.setStyleSheet(text_style)
 
         right_layout.addLayout(streams_layout)

@@ -167,6 +167,11 @@ GUI motion controls:
 - Direction, gripper turn, stretch, and shrink buttons support press-and-hold continuous movement.
 - A speed slider in the GUI adjusts movement duration live.
 - Slider speed is mapped to bridge `move_duration_ms` (higher slider value means faster movement).
+- **REFRESH button**: Synchronizes the arm's internal motion duration setting with the GUI's current speed slider value without triggering any arm movement. Useful for applying a new duration default or resyncing the arm state with the GUI.
+- **ON/OFF button**: Powers the arm on or off.
+- **HOME button**: Moves all servos to their home positions.
+- **MODE button**: Cycles through control modes (`GUI`, `LLM`, `AUTO`).
+- **FACE DETECTION button**: Toggles face detection overlay on/off in the preview stream.
 
 ## Arm Control
 
