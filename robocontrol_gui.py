@@ -27,6 +27,8 @@ from std_msgs.msg import Bool, String
 
 
 FACE_DETECTION_TOPIC = '/mediapipe/face_detection_summary'
+CAMERA_TOPIC = '/mediapipe/camera/image/compressed'
+WEBCAM_TOPIC = '/mediapipe/webcam/image/compressed'
 SPEECH_INPUT_TOPIC = 'roboarm/speech_input'
 SPEECH_STATUS_TOPIC = 'roboarm/speech_status'
 CONTROL_MODES = ('GUI', 'LLM', 'AUTO')
@@ -73,8 +75,8 @@ class RoboArmController(QMainWindow):
             rclpy.init(args=None)
 
         self.setWindowTitle("RoboControl")
-        self.setGeometry(100, 100, 1080, 680)
-        self.setMinimumSize(980, 600)
+        self.setGeometry(100, 100, 1320, 720)
+        self.setMinimumSize(1180, 680)
         self.setStyleSheet("background-color: #f0f0f0;")
 
         self.node = rclpy.create_node("robocontrol_gui")
@@ -82,7 +84,8 @@ class RoboArmController(QMainWindow):
         self.face_detection_publisher = self.node.create_publisher(Bool, "/robocontrol/face_detection_enabled", 10)
         self.mode_publisher = self.node.create_publisher(String, "/robocontrol/mode", 10)
         self.node.create_subscription(String, "roboarm/status", self._handle_status, 10)
-        self.node.create_subscription(CompressedImage, "/mediapipe/camera/image/compressed", self._handle_camera, 10)
+        self.node.create_subscription(CompressedImage, CAMERA_TOPIC, self._handle_camera, 10)
+        self.node.create_subscription(CompressedImage, WEBCAM_TOPIC, self._handle_webcam, 10)
         self.node.create_subscription(String, FACE_DETECTION_TOPIC, self._handle_face_summary, 10)
         self.node.create_subscription(String, SPEECH_INPUT_TOPIC, self._handle_speech_input, 10)
         self.node.create_subscription(String, SPEECH_STATUS_TOPIC, self._handle_speech_status, 10)
@@ -268,26 +271,54 @@ class RoboArmController(QMainWindow):
         right_layout = QVBoxLayout()
         right_layout.setAlignment(Qt.AlignTop)
 
-        camera_title = QLabel('Camera Preview')
+        # Place the two stream windows horizontally using a QHBoxLayout
+        streams_layout = QHBoxLayout()
+        streams_layout.setSpacing(12)
+
+        # Left Stream Wrapper (Camera Stream)
+        raw_stream_container = QVBoxLayout()
+        raw_camera_title = QLabel('Camera Stream (Webcam)')
+        raw_camera_title.setAlignment(Qt.AlignCenter)
+        raw_camera_title.setStyleSheet('font-weight: bold; padding-bottom: 4px;')
+        
+        self.raw_preview_label = QLabel("Waiting for camera stream")
+        self.raw_preview_label.setAlignment(Qt.AlignCenter)
+        # Adapt setFixedSize for horizontal layout (smaller width or 16:9 like 320x240 each)
+        self.raw_preview_label.setFixedSize(320, 240)
+        self.raw_preview_label.setStyleSheet(
+            'background-color: #101010; color: #f0f0f0; border: 2px solid #7a7a7a;'
+        )
+        raw_stream_container.addWidget(raw_camera_title)
+        raw_stream_container.addWidget(self.raw_preview_label, alignment=Qt.AlignCenter)
+
+        # Right Stream Wrapper (FaceDetector Preview)
+        face_stream_container = QVBoxLayout()
+        camera_title = QLabel('FaceDetector Preview (Arm)')
         camera_title.setAlignment(Qt.AlignCenter)
         camera_title.setStyleSheet('font-weight: bold; padding-bottom: 4px;')
 
         self.preview_label = QLabel("Waiting for camera stream")
         self.preview_label.setAlignment(Qt.AlignCenter)
-        self.preview_label.setFixedSize(360, 270)
+        self.preview_label.setFixedSize(320, 240)
         self.preview_label.setStyleSheet(
             'background-color: #101010; color: #f0f0f0; border: 2px solid #7a7a7a;'
         )
+        face_stream_container.addWidget(camera_title)
+        face_stream_container.addWidget(self.preview_label, alignment=Qt.AlignCenter)
+
+        # Add both stream structures to the horizontal streams container
+        streams_layout.addLayout(raw_stream_container)
+        streams_layout.addLayout(face_stream_container)
 
         self.status_label = QLabel("Bridge status: waiting for data")
         self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setWordWrap(True)
-        self.status_label.setFixedWidth(360)
+        self.status_label.setFixedWidth(652)
 
         self.error_label = QLabel("")
         self.error_label.setAlignment(Qt.AlignCenter)
         self.error_label.setWordWrap(True)
-        self.error_label.setFixedWidth(360)
+        self.error_label.setFixedWidth(652)
         self.error_label.setStyleSheet("color: #d9534f;")
 
         text_output_title = QLabel('Text Output')
@@ -296,16 +327,15 @@ class RoboArmController(QMainWindow):
 
         self.text_output_display = QTextEdit()
         self.text_output_display.setReadOnly(True)
-        self.text_output_display.setFixedWidth(360)
-        self.text_output_display.setMinimumHeight(220)
+        self.text_output_display.setFixedWidth(652)
+        self.text_output_display.setMinimumHeight(160)
         self.text_output_display.setStyleSheet(text_style)
 
-        right_layout.addWidget(camera_title)
-        right_layout.addWidget(self.preview_label, alignment=Qt.AlignCenter)
-        right_layout.addWidget(self.status_label)
-        right_layout.addWidget(self.error_label)
+        right_layout.addLayout(streams_layout)
+        right_layout.addWidget(self.status_label, alignment=Qt.AlignCenter)
+        right_layout.addWidget(self.error_label, alignment=Qt.AlignCenter)
         right_layout.addWidget(text_output_title)
-        right_layout.addWidget(self.text_output_display)
+        right_layout.addWidget(self.text_output_display, alignment=Qt.AlignCenter)
         right_layout.addStretch()
 
         main_layout.addLayout(left_layout, 1)
@@ -529,17 +559,31 @@ class RoboArmController(QMainWindow):
             return
 
         self.last_frame = image.copy()
-        pixmap = QPixmap.fromImage(self.last_frame)
 
+        # Draw overlay on a copy for the face detection preview if enabled
+        face_pixmap = QPixmap.fromImage(self.last_frame)
         if self.face_detection_enabled:
-            self._draw_face_overlay(pixmap)
+            self._draw_face_overlay(face_pixmap)
 
-        pixmap = pixmap.scaled(
+        pixmap = face_pixmap.scaled(
             self.preview_label.size(),
             Qt.KeepAspectRatio,
             Qt.SmoothTransformation,
         )
         self.preview_label.setPixmap(pixmap)
+
+    def _handle_webcam(self, message: CompressedImage) -> None:
+        image = QImage.fromData(message.data, 'JPG')
+        if image.isNull():
+            return
+
+        raw_pixmap = QPixmap.fromImage(image)
+        raw_scaled_pixmap = raw_pixmap.scaled(
+            self.raw_preview_label.size(),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation,
+        )
+        self.raw_preview_label.setPixmap(raw_scaled_pixmap)
 
     def _handle_face_summary(self, message: String) -> None:
         try:

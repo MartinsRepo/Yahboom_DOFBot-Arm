@@ -15,6 +15,8 @@ def generate_launch_description():
     camera_height = LaunchConfiguration('camera_height')
     camera_fps = LaunchConfiguration('camera_fps')
     camera_rotate_180 = LaunchConfiguration('camera_rotate_180')
+    webcam_device = LaunchConfiguration('webcam_device')
+    webcam_rotate_180 = LaunchConfiguration('webcam_rotate_180')
     show_preview = LaunchConfiguration('show_preview')
     face_detection_min_conf = LaunchConfiguration('face_detection_min_conf')
     enable_face_detection = LaunchConfiguration('enable_face_detection')
@@ -41,11 +43,13 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('serial_device', default_value='auto'),
         DeclareLaunchArgument('arm_lib_dir', default_value=''),
-        DeclareLaunchArgument('camera_device', default_value='0'),
+        DeclareLaunchArgument('camera_device', default_value='/dev/video2'),
         DeclareLaunchArgument('camera_width', default_value='640'),
         DeclareLaunchArgument('camera_height', default_value='480'),
         DeclareLaunchArgument('camera_fps', default_value='15'),
         DeclareLaunchArgument('camera_rotate_180', default_value='1'),
+        DeclareLaunchArgument('webcam_device', default_value='/dev/video0'),
+        DeclareLaunchArgument('webcam_rotate_180', default_value='0'),
         DeclareLaunchArgument('show_preview', default_value='0'),
         DeclareLaunchArgument('face_detection_min_conf', default_value='0.60'),
         DeclareLaunchArgument('enable_face_detection', default_value='1'),
@@ -80,6 +84,24 @@ def generate_launch_description():
                 'DOFBOT_CAMERA_HEIGHT': camera_height,
                 'DOFBOT_CAMERA_FPS': camera_fps,
                 'DOFBOT_CAMERA_ROTATE_180': camera_rotate_180,
+                'DOFBOT_CAMERA_NODE_NAME': 'dofbot_camera_driver',
+                'DOFBOT_CAMERA_TOPIC': '/mediapipe/camera/image/compressed',
+            },
+        ),
+
+        Node(
+            package='dofbot_mediapipe',
+            executable='camera_driver.py',
+            name='dofbot_webcam_driver',
+            output='screen',
+            additional_env={
+                'DOFBOT_CAMERA_DEVICE': webcam_device,
+                'DOFBOT_CAMERA_WIDTH': camera_width,
+                'DOFBOT_CAMERA_HEIGHT': camera_height,
+                'DOFBOT_CAMERA_FPS': camera_fps,
+                'DOFBOT_CAMERA_ROTATE_180': webcam_rotate_180,
+                'DOFBOT_CAMERA_NODE_NAME': 'dofbot_webcam_driver',
+                'DOFBOT_CAMERA_TOPIC': '/mediapipe/webcam/image/compressed',
             },
         ),
 

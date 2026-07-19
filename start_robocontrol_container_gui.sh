@@ -38,40 +38,49 @@ fi
 if [[ -n "${DOFBOT_CAMERA_DEVICE:-}" ]]; then
   CAMERA_DEVICE="$DOFBOT_CAMERA_DEVICE"
 else
-  CAMERA_EXCLUDE_REGEX="${DOFBOT_CAMERA_EXCLUDE_REGEX:-lifecam|microsoft|hd-3000}"
-  CAMERA_CANDIDATES=()
+  # Since the voice/webcam is the Microsoft LifeCam HD-3000,
+  # the arm-mounted camera is the other (USB 2.0 Camera /dev/video2).
+  # We change the fallback exclusion pattern to target the USB 2.0 Camera as the arm camera fallback,
+  # OR specifically select /dev/video2 (USB 2.0 Camera) for the robot if LifeCam is the speech microphone device.
+  # Let's auto-detect: if we have /dev/video2, use it. Otherwise, fallback.
+  if [[ -e /dev/video2 ]]; then
+    CAMERA_DEVICE="/dev/video2"
+  else
+    CAMERA_EXCLUDE_REGEX="${DOFBOT_CAMERA_EXCLUDE_REGEX:-lifecam|microsoft|hd-3000}"
+    CAMERA_CANDIDATES=()
 
-  if [[ -d /dev/v4l/by-id ]]; then
-    while IFS= read -r cam_path; do
-      [[ -n "$cam_path" ]] || continue
-      CAMERA_CANDIDATES+=("$cam_path")
-    done < <(ls -1 /dev/v4l/by-id/* 2>/dev/null || true)
-  fi
-
-  if [[ ${#CAMERA_CANDIDATES[@]} -eq 0 ]]; then
-    while IFS= read -r cam_path; do
-      [[ -n "$cam_path" ]] || continue
-      CAMERA_CANDIDATES+=("$cam_path")
-    done < <(ls -1 /dev/video* 2>/dev/null || true)
-  fi
-
-  CAMERA_DEVICE=""
-
-  for candidate in "${CAMERA_CANDIDATES[@]}"; do
-    candidate_lower="$(echo "$candidate" | tr '[:upper:]' '[:lower:]')"
-    if ! [[ "$candidate_lower" =~ $CAMERA_EXCLUDE_REGEX ]]; then
-      CAMERA_DEVICE="$candidate"
-      break
+    if [[ -d /dev/v4l/by-id ]]; then
+      while IFS= read -r cam_path; do
+        [[ -n "$cam_path" ]] || continue
+        CAMERA_CANDIDATES+=("$cam_path")
+      done < <(ls -1 /dev/v4l/by-id/* 2>/dev/null || true)
     fi
-  done
 
-  if [[ -z "$CAMERA_DEVICE" && ${#CAMERA_CANDIDATES[@]} -gt 0 ]]; then
-    CAMERA_DEVICE="${CAMERA_CANDIDATES[0]}"
-    echo "Warning: no preferred robot camera found; falling back to '$CAMERA_DEVICE'." >&2
-  fi
+    if [[ ${#CAMERA_CANDIDATES[@]} -eq 0 ]]; then
+      while IFS= read -r cam_path; do
+        [[ -n "$cam_path" ]] || continue
+        CAMERA_CANDIDATES+=("$cam_path")
+      done < <(ls -1 /dev/video* 2>/dev/null || true)
+    fi
 
-  if [[ -z "$CAMERA_DEVICE" ]]; then
-    CAMERA_DEVICE="0"
+    CAMERA_DEVICE=""
+
+    for candidate in "${CAMERA_CANDIDATES[@]}"; do
+      candidate_lower="$(echo "$candidate" | tr '[:upper:]' '[:lower:]')"
+      if ! [[ "$candidate_lower" =~ $CAMERA_EXCLUDE_REGEX ]]; then
+        CAMERA_DEVICE="$candidate"
+        break
+      fi
+    done
+
+    if [[ -z "$CAMERA_DEVICE" && ${#CAMERA_CANDIDATES[@]} -gt 0 ]]; then
+      CAMERA_DEVICE="${CAMERA_CANDIDATES[0]}"
+      echo "Warning: no preferred robot camera found; falling back to '$CAMERA_DEVICE'." >&2
+    fi
+
+    if [[ -z "$CAMERA_DEVICE" ]]; then
+      CAMERA_DEVICE="0"
+    fi
   fi
 fi
 
@@ -168,6 +177,13 @@ done
 CAMERA_DEVICE_ARGS=()
 if [[ "$CAMERA_DEVICE" == /dev/* ]]; then
   CAMERA_DEVICE_ARGS=(--device "$CAMERA_DEVICE:$CAMERA_DEVICE")
+fi
+# Always mount the webcam /dev/video0 and /dev/video1 if they exist on the host, so the desktop GUI or gesture nodes can open them if needed
+if [[ -e /dev/video0 ]]; then
+  CAMERA_DEVICE_ARGS+=(--device "/dev/video0:/dev/video0")
+fi
+if [[ -e /dev/video1 ]]; then
+  CAMERA_DEVICE_ARGS+=(--device "/dev/video1:/dev/video1")
 fi
 
 AUDIO_DEVICE_ARGS=()

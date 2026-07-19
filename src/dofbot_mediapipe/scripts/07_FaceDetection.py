@@ -48,6 +48,9 @@ FACE_DETECTION_TOPIC = '/mediapipe/face_detection_summary'
 CAMERA_TOPIC = '/mediapipe/camera/image/compressed'
 FACE_DETECTION_ENABLED_TOPIC = '/robocontrol/face_detection_enabled'
 SHOW_PREVIEW = os.environ.get('DOFBOT_SHOW_PREVIEW', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+RAW_CAMERA_WINDOW = 'camera_stream'
+FACE_DETECTION_WINDOW = 'face_detection'
+PREVIEW_WINDOW_MARGIN = 24
 
 
 class FaceDetector(Node):
@@ -60,6 +63,7 @@ class FaceDetector(Node):
         self.enable_subscription = self.create_subscription(Bool, FACE_DETECTION_ENABLED_TOPIC, self._handle_detection_enabled, 10)
         self.overlay_enabled = False
         self.prev_frame_ts = 0.0
+        self.preview_windows_ready = False
 
     def _handle_detection_enabled(self, message: Bool):
         self.overlay_enabled = bool(message.data)
@@ -157,14 +161,38 @@ class FaceDetector(Node):
             self.get_logger().warning('Failed decoding compressed camera frame')
             return
 
+        if SHOW_PREVIEW:
+            self._ensure_preview_windows(frame)
+            cv.imshow(RAW_CAMERA_WINDOW, frame)
+
         frame = self.pubFaceDetection(frame, draw=(SHOW_PREVIEW and self.overlay_enabled))
         now = time.time()
         fps = 1.0 / max(now - self.prev_frame_ts, 1e-6) if self.prev_frame_ts else 0.0
         self.prev_frame_ts = now
         if SHOW_PREVIEW:
             cv.putText(frame, f'FPS : {int(fps)}', (20, 30), cv.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 1)
-            cv.imshow('face_detection', frame)
+            cv.imshow(FACE_DETECTION_WINDOW, frame)
             cv.waitKey(1)
+
+    def _ensure_preview_windows(self, frame):
+        if self.preview_windows_ready:
+            return
+
+        frame_height, frame_width = frame.shape[:2]
+        window_width = max(320, frame_width)
+        window_height = max(240, frame_height)
+        top_left_x = 40
+        top_left_y = 40
+
+        cv.namedWindow(RAW_CAMERA_WINDOW, cv.WINDOW_NORMAL)
+        cv.namedWindow(FACE_DETECTION_WINDOW, cv.WINDOW_NORMAL)
+        cv.resizeWindow(RAW_CAMERA_WINDOW, window_width, window_height)
+        cv.resizeWindow(FACE_DETECTION_WINDOW, window_width, window_height)
+        
+        # Position the windows horizontally!
+        cv.moveWindow(RAW_CAMERA_WINDOW, top_left_x, top_left_y)
+        cv.moveWindow(FACE_DETECTION_WINDOW, top_left_x + window_width + PREVIEW_WINDOW_MARGIN, top_left_y)
+        self.preview_windows_ready = True
 
     @staticmethod
     def _fancyDraw(frame, bbox, line_length=30, thickness=10):

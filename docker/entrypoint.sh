@@ -22,11 +22,13 @@ launch_stack() {
   ros2 launch arm_mediapipe docker_stack.launch.py \
     serial_device:="${DOFBOT_SERIAL_DEVICE:-auto}" \
     arm_lib_dir:="${DOFBOT_ARM_LIB_DIR:-}" \
-    camera_device:="${DOFBOT_CAMERA_DEVICE:-0}" \
+    camera_device:="${DOFBOT_CAMERA_DEVICE:-/dev/video2}" \
     camera_width:="${DOFBOT_CAMERA_WIDTH:-640}" \
     camera_height:="${DOFBOT_CAMERA_HEIGHT:-480}" \
     camera_fps:="${DOFBOT_CAMERA_FPS:-15}" \
     camera_rotate_180:="${DOFBOT_CAMERA_ROTATE_180:-1}" \
+    webcam_device:="${DOFBOT_WEBCAM_DEVICE:-/dev/video0}" \
+    webcam_rotate_180:="${DOFBOT_WEBCAM_ROTATE_180:-0}" \
     show_preview:="${DOFBOT_SHOW_PREVIEW:-0}" \
     face_detection_min_conf:="${DOFBOT_FACE_DETECTION_MIN_CONF:-0.60}" \
     enable_face_detection:="${ENABLE_FACE_DETECTION:-1}" \

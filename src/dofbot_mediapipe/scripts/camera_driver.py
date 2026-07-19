@@ -42,9 +42,10 @@ CAMERA_TOPIC = '/mediapipe/camera/image/compressed'
 
 
 class CameraDriver(Node):
-    def __init__(self, camera_device: str, width: int, height: int, fps: int):
-        super().__init__('dofbot_camera_driver')
-        self.pub = self.create_publisher(CompressedImage, CAMERA_TOPIC, 10)
+    def __init__(self, camera_device: str, width: int, height: int, fps: int, node_name: str, topic: str):
+        super().__init__(node_name)
+        self.topic = topic
+        self.pub = self.create_publisher(CompressedImage, self.topic, 10)
         self.rotate_180 = os.environ.get('DOFBOT_CAMERA_ROTATE_180', '1').strip().lower() in (
             '1', 'true', 'yes', 'on'
         )
@@ -60,7 +61,7 @@ class CameraDriver(Node):
         else:
             transform = 'enabled' if self.rotate_180 else 'disabled'
             self.get_logger().info(
-                f'Publishing camera frames on {CAMERA_TOPIC} from {camera_device} (180deg rotation {transform})'
+                f'Publishing camera frames on {self.topic} from {camera_device} (180deg rotation {transform})'
             )
 
     def _publish_frame(self):
@@ -97,7 +98,16 @@ def main():
     width = int(os.environ.get('DOFBOT_CAMERA_WIDTH', '640'))
     height = int(os.environ.get('DOFBOT_CAMERA_HEIGHT', '480'))
     fps = int(os.environ.get('DOFBOT_CAMERA_FPS', '15'))
-    node = CameraDriver(camera_device=camera_device, width=width, height=height, fps=fps)
+    node_name = os.environ.get('DOFBOT_CAMERA_NODE_NAME', 'dofbot_camera_driver')
+    topic = os.environ.get('DOFBOT_CAMERA_TOPIC', CAMERA_TOPIC)
+    node = CameraDriver(
+        camera_device=camera_device,
+        width=width,
+        height=height,
+        fps=fps,
+        node_name=node_name,
+        topic=topic,
+    )
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
