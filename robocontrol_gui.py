@@ -6,7 +6,7 @@ import json
 import html
 import os
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, List, Optional
 
 import rclpy
 from PyQt5.QtCore import QTimer, Qt
@@ -29,6 +29,8 @@ from std_msgs.msg import Bool, String
 FACE_DETECTION_TOPIC = '/mediapipe/face_detection_summary'
 CAMERA_TOPIC = '/mediapipe/camera/image/compressed'
 WEBCAM_TOPIC = '/mediapipe/webcam/image/compressed'
+GESTURE_SUMMARY_TOPIC = '/mediapipe/gesture_summary'
+GESTURE_ENABLED_TOPIC = '/robocontrol/gesture_enabled'
 SPEECH_INPUT_TOPIC = 'roboarm/speech_input'
 SPEECH_STATUS_TOPIC = 'roboarm/speech_status'
 CONTROL_MODES = ('GUI', 'LLM', 'AUTO')
@@ -68,6 +70,16 @@ class FaceSummary:
     keypoints: Dict[str, Dict[str, float]] = None
 
 
+@dataclass
+class GestureSummary:
+    gesture: str = 'none'
+    action: str = ''
+    num_hands: int = 0
+    confidence: float = 0.0
+    wrist_angle_deg: float = 0.0
+    landmarks: Optional[List[List[Dict[str, float]]]] = None
+
+
 class RoboArmController(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -82,11 +94,13 @@ class RoboArmController(QMainWindow):
         self.node = rclpy.create_node("robocontrol_gui")
         self.command_publisher = self.node.create_publisher(String, "roboarm/command", 10)
         self.face_detection_publisher = self.node.create_publisher(Bool, "/robocontrol/face_detection_enabled", 10)
+        self.gesture_control_publisher = self.node.create_publisher(Bool, GESTURE_ENABLED_TOPIC, 10)
         self.mode_publisher = self.node.create_publisher(String, "/robocontrol/mode", 10)
         self.node.create_subscription(String, "roboarm/status", self._handle_status, 10)
         self.node.create_subscription(CompressedImage, CAMERA_TOPIC, self._handle_camera, 10)
         self.node.create_subscription(CompressedImage, WEBCAM_TOPIC, self._handle_webcam, 10)
         self.node.create_subscription(String, FACE_DETECTION_TOPIC, self._handle_face_summary, 10)
+        self.node.create_subscription(String, GESTURE_SUMMARY_TOPIC, self._handle_gesture_summary, 10)
         self.node.create_subscription(String, SPEECH_INPUT_TOPIC, self._handle_speech_input, 10)
         self.node.create_subscription(String, SPEECH_STATUS_TOPIC, self._handle_speech_status, 10)
 
@@ -95,6 +109,7 @@ class RoboArmController(QMainWindow):
         self.face_summary = FaceSummary(keypoints={})
         self.face_detection_enabled = False
         self.gesture_control_enabled = False
+        self.gesture_summary = GestureSummary()
         self.control_mode = 'GUI'
         self.last_spoken_command = ''
         self.last_heard_speech = ''
@@ -450,6 +465,7 @@ class RoboArmController(QMainWindow):
 
     def _toggle_gesture_control(self) -> None:
         self.gesture_control_enabled = not self.gesture_control_enabled
+        self._publish_gesture_control_state(self.gesture_control_enabled)
         self._refresh_displays()
 
     def _refresh_displays(self) -> None:
@@ -530,6 +546,8 @@ class RoboArmController(QMainWindow):
             f"GUI speed: {self.speed_slider.value()}% ({self.move_duration_ms} ms)",
             f"Face detection: {'enabled' if self.face_detection_enabled else 'disabled'}",
             f"Gesture control: {'enabled' if self.gesture_control_enabled else 'disabled'}",
+            f"Gesture status: {self.gesture_summary.gesture} -> {self.gesture_summary.action or 'n/a'} "
+            f"(hands={self.gesture_summary.num_hands})",
             f"Face status: {face_status}",
             f"Center: x={center_x if center_x is not None else 'n/a'}, y={center_y if center_y is not None else 'n/a'}",
             f"BBox: w={bbox_w if bbox_w is not None else 'n/a'}, h={bbox_h if bbox_h is not None else 'n/a'}",
@@ -557,6 +575,11 @@ class RoboArmController(QMainWindow):
         message = Bool()
         message.data = bool(enabled)
         self.face_detection_publisher.publish(message)
+
+    def _publish_gesture_control_state(self, enabled: bool) -> None:
+        message = Bool()
+        message.data = bool(enabled)
+        self.gesture_control_publisher.publish(message)
 
     def _publish_control_mode(self, mode: str) -> None:
         message = String()
@@ -607,6 +630,8 @@ class RoboArmController(QMainWindow):
             return
 
         raw_pixmap = QPixmap.fromImage(image)
+        if self.gesture_control_enabled:
+            self._draw_gesture_overlay(raw_pixmap)
         raw_scaled_pixmap = raw_pixmap.scaled(
             self.raw_preview_label.size(),
             Qt.KeepAspectRatio,
@@ -631,6 +656,26 @@ class RoboArmController(QMainWindow):
             bbox_width=payload.get('bbox_width'),
             bbox_height=payload.get('bbox_height'),
             keypoints=keypoints,
+        )
+        self._refresh_displays()
+
+    def _handle_gesture_summary(self, message: String) -> None:
+        try:
+            payload = json.loads(message.data)
+        except json.JSONDecodeError:
+            return
+
+        landmarks = payload.get('landmarks')
+        if not isinstance(landmarks, list):
+            landmarks = None
+
+        self.gesture_summary = GestureSummary(
+            gesture=str(payload.get('gesture', 'none')),
+            action=str(payload.get('action', '')),
+            num_hands=int(payload.get('num_hands', 0) or 0),
+            confidence=float(payload.get('confidence', 0.0) or 0.0),
+            wrist_angle_deg=float(payload.get('wrist_angle_deg', 0.0) or 0.0),
+            landmarks=landmarks,
         )
         self._refresh_displays()
 
@@ -717,6 +762,62 @@ class RoboArmController(QMainWindow):
             painter.setPen(QPen(color, 1))
             painter.setBrush(color)
             painter.drawEllipse(point_x - 4, point_y - 4, 8, 8)
+
+        painter.end()
+
+    _HAND_CONNECTIONS = (
+        (0, 1), (1, 2), (2, 3), (3, 4),        # thumb
+        (0, 5), (5, 6), (6, 7), (7, 8),        # index
+        (0, 9), (9, 10), (10, 11), (11, 12),   # middle
+        (0, 13), (13, 14), (14, 15), (15, 16),  # ring
+        (0, 17), (17, 18), (18, 19), (19, 20),  # pinky
+        (5, 9), (9, 13), (13, 17),              # palm
+    )
+
+    def _draw_gesture_overlay(self, pixmap: QPixmap) -> None:
+        width = pixmap.width()
+        height = pixmap.height()
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        landmarks = self.gesture_summary.landmarks or []
+        connection_pen = QPen(QColor(0, 255, 0), 2)
+        point_color = QColor(255, 165, 0)
+        for hand_points in landmarks:
+            if not isinstance(hand_points, list) or len(hand_points) < 21:
+                continue
+            coords = []
+            for point in hand_points:
+                if not isinstance(point, dict):
+                    coords.append(None)
+                    continue
+                px = point.get('x')
+                py = point.get('y')
+                if px is None or py is None:
+                    coords.append(None)
+                    continue
+                coords.append((int(float(px) * width), int(float(py) * height)))
+
+            painter.setPen(connection_pen)
+            for start_idx, end_idx in self._HAND_CONNECTIONS:
+                start = coords[start_idx] if start_idx < len(coords) else None
+                end = coords[end_idx] if end_idx < len(coords) else None
+                if start is None or end is None:
+                    continue
+                painter.drawLine(start[0], start[1], end[0], end[1])
+
+            painter.setPen(QPen(point_color, 1))
+            painter.setBrush(point_color)
+            for point_xy in coords:
+                if point_xy is None:
+                    continue
+                painter.drawEllipse(point_xy[0] - 3, point_xy[1] - 3, 6, 6)
+
+        if self.gesture_summary.gesture not in ('none', 'unknown', ''):
+            label = f"{self.gesture_summary.gesture} -> {self.gesture_summary.action or 'n/a'}"
+            painter.setPen(QPen(QColor(255, 255, 0), 1))
+            painter.drawText(10, 20, label)
 
         painter.end()
 

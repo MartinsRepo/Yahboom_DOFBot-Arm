@@ -34,6 +34,9 @@ launch_stack() {
     enable_face_detection:="${ENABLE_FACE_DETECTION:-1}" \
     enable_face_mesh:="${ENABLE_FACE_MESH:-0}" \
     enable_pose:="${ENABLE_POSE:-0}" \
+    enable_gesture_detection:="${ENABLE_GESTURE_DETECTION:-0}" \
+    gesture_min_det_conf:="${DOFBOT_GESTURE_MIN_DET_CONF:-0.70}" \
+    gesture_min_trk_conf:="${DOFBOT_GESTURE_MIN_TRK_CONF:-0.50}" \
     enable_speech_controller:="${ENABLE_SPEECH_CONTROLLER:-0}" \
     enable_llm_controller:="${ENABLE_LLM_CONTROLLER:-0}" \
     enable_agent_tools:="${ENABLE_ARM_AGENT_TOOLS:-1}" \

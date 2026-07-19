@@ -9,6 +9,7 @@ install(
     scripts/02_PoseDetector.py
     scripts/04_FaceMesh.py
     scripts/07_FaceDetection.py
+    scripts/08_GestureDetection.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

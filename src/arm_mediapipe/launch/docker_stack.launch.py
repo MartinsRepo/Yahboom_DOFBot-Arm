@@ -39,6 +39,9 @@ def generate_launch_description():
     speech_flush_silence_s = LaunchConfiguration('speech_flush_silence_s')
     wake_word = LaunchConfiguration('wake_word')
     wake_word_timeout_s = LaunchConfiguration('wake_word_timeout_s')
+    enable_gesture_detection = LaunchConfiguration('enable_gesture_detection')
+    gesture_min_det_conf = LaunchConfiguration('gesture_min_det_conf')
+    gesture_min_trk_conf = LaunchConfiguration('gesture_min_trk_conf')
 
     return LaunchDescription([
         DeclareLaunchArgument('serial_device', default_value='auto'),
@@ -72,6 +75,9 @@ def generate_launch_description():
         DeclareLaunchArgument('speech_flush_silence_s', default_value='0.4'),
         DeclareLaunchArgument('wake_word', default_value='martin'),
         DeclareLaunchArgument('wake_word_timeout_s', default_value='4.0'),
+        DeclareLaunchArgument('enable_gesture_detection', default_value='0'),
+        DeclareLaunchArgument('gesture_min_det_conf', default_value='0.70'),
+        DeclareLaunchArgument('gesture_min_trk_conf', default_value='0.50'),
 
         Node(
             package='dofbot_mediapipe',
@@ -181,6 +187,19 @@ def generate_launch_description():
                 'DOFBOT_FACE_DETECTION_MIN_CONF': face_detection_min_conf,
             },
             condition=IfCondition(enable_face_detection),
+        ),
+
+        Node(
+            package='dofbot_mediapipe',
+            executable='08_GestureDetection.py',
+            name='gesture_detection',
+            output='screen',
+            additional_env={
+                'DOFBOT_SHOW_PREVIEW': show_preview,
+                'DOFBOT_GESTURE_MIN_DET_CONF': gesture_min_det_conf,
+                'DOFBOT_GESTURE_MIN_TRK_CONF': gesture_min_trk_conf,
+            },
+            condition=IfCondition(enable_gesture_detection),
         ),
 
         Node(

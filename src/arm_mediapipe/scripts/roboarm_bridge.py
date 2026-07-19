@@ -177,6 +177,12 @@ class RoboArmBridge(Node):
             lambda msg: self.handle_command(msg, source="llm"),
             10,
         )
+        self.gesture_command_subscription = self.create_subscription(
+            String,
+            "roboarm/gesture_command",
+            lambda msg: self.handle_command(msg, source="gesture"),
+            10,
+        )
         self.mode_subscription = self.create_subscription(
             String,
             "/robocontrol/mode",
@@ -462,7 +468,7 @@ class RoboArmBridge(Node):
         self.last_command_source = source
         self.last_command_action = action
         self.last_error = ""
-        if source == "gui" and self.control_mode == CONTROL_MODE_AUTO:
+        if source in ("gui", "gesture") and self.control_mode == CONTROL_MODE_AUTO:
             self.manual_override_until_s = now_s + self.manual_override_window_s
         self.last_reject_reason = ""
         self.publish_state()
@@ -470,8 +476,8 @@ class RoboArmBridge(Node):
     def _is_source_allowed(self, source: str, action: str, now_s: float, payload: dict) -> bool:
         if source == "llm" and self.control_mode == CONTROL_MODE_GUI:
             self.last_reject_reason = "LLM command rejected in GUI mode"
-        elif source == "gui" and self.control_mode == CONTROL_MODE_LLM and action not in EMERGENCY_ACTIONS:
-            self.last_reject_reason = "GUI command rejected in LLM mode"
+        elif source in ("gui", "gesture") and self.control_mode == CONTROL_MODE_LLM and action not in EMERGENCY_ACTIONS:
+            self.last_reject_reason = f"{source.upper()} command rejected in LLM mode"
         elif source == "llm" and self.control_mode == CONTROL_MODE_AUTO and now_s < self.manual_override_until_s:
             self.last_reject_reason = "LLM command suppressed by manual override"
         elif (
