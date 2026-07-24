@@ -51,6 +51,13 @@ def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(value, maximum))
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 @dataclass
 class ArmStatus:
     connected: bool = False
@@ -87,8 +94,8 @@ class RoboArmController(QMainWindow):
             rclpy.init(args=None)
 
         self.setWindowTitle("RoboControl")
-        self.setGeometry(100, 100, 1320, 720)
-        self.setMinimumSize(1180, 680)
+        self.setGeometry(100, 100, 1300, 1200)
+        #self.setMinimumSize(1240, 910)
         self.setStyleSheet("background-color: #f0f0f0;")
 
         self.node = rclpy.create_node("robocontrol_gui")
@@ -107,10 +114,16 @@ class RoboArmController(QMainWindow):
         self.status = ArmStatus()
         self.latest_status_payload: dict = {}
         self.face_summary = FaceSummary(keypoints={})
-        self.face_detection_enabled = False
-        self.gesture_control_enabled = False
+        self.face_detection_enabled = _env_bool('ENABLE_FACE_DETECTION', default=True)
+        self.gesture_control_enabled = _env_bool('ENABLE_GESTURE_DETECTION', default=False)
         self.gesture_summary = GestureSummary()
-        self.control_mode = 'GUI'
+
+        if self.gesture_control_enabled:
+            self._publish_gesture_control_state(True)
+        if self.face_detection_enabled:
+            self._publish_face_detection_state(True)
+        self.control_mode = os.environ.get('DOFBOT_CONTROL_MODE', 'AUTO').strip().upper() or 'AUTO'
+        self._publish_control_mode(self.control_mode)
         self.last_spoken_command = ''
         self.last_heard_speech = ''
         self.speech_state = 'n/a'
@@ -134,7 +147,7 @@ class RoboArmController(QMainWindow):
         self._hold_repeat_timer.timeout.connect(self._repeat_held_action)
         self.move_duration_ms = _env_int(
             'DOFBOT_MOVE_DURATION_MS',
-            default=120,
+            default=650,
             minimum=MOVE_DURATION_MIN_MS,
             maximum=MOVE_DURATION_MAX_MS,
         )
@@ -312,34 +325,103 @@ class RoboArmController(QMainWindow):
 
         # Left Stream Wrapper (Camera Stream)
         raw_stream_container = QVBoxLayout()
+        raw_stream_container.setAlignment(Qt.AlignTop)
         raw_camera_title = QLabel('Camera Stream (Webcam)')
         raw_camera_title.setAlignment(Qt.AlignCenter)
         raw_camera_title.setStyleSheet('font-weight: bold; padding-bottom: 4px;')
         
         self.raw_preview_label = QLabel("Waiting for camera stream")
         self.raw_preview_label.setAlignment(Qt.AlignCenter)
-        # Adapt setFixedSize for horizontal layout (smaller width or 16:9 like 320x240 each)
-        self.raw_preview_label.setFixedSize(320, 240)
+        # Adapt setFixedSize for horizontal layout (smaller width or 16:9 like 360x270 each)
+        self.raw_preview_label.setFixedSize(360, 270)
         self.raw_preview_label.setStyleSheet(
             'background-color: #101010; color: #f0f0f0; border: 2px solid #7a7a7a;'
         )
         raw_stream_container.addWidget(raw_camera_title)
         raw_stream_container.addWidget(self.raw_preview_label, alignment=Qt.AlignCenter)
 
+        infobox_title = QLabel('Infobox')
+        infobox_title.setAlignment(Qt.AlignCenter)
+        infobox_title.setStyleSheet('font-weight: bold; padding-top: 10px; padding-bottom: 4px;')
+
+        self.infobox_display = QTextEdit()
+        self.infobox_display.setReadOnly(True)
+        self.infobox_display.setFixedWidth(360)
+        #self.infobox_display.setMinimumHeight(160)
+        self.infobox_display.setFixedHeight(300)
+        self.infobox_display.setStyleSheet(text_style)
+
+        infobox_html = """
+        <h3 align="center" style="margin-top: 0;">Voice Commands DE</h3>
+        <table width="100%" border="1" cellspacing="0" cellpadding="3" style="font-size: 12px; border-collapse: collapse;">
+            <tr><td><b>Wake words</b></td><td>martin</td></tr>
+            <tr><td><b>Directions</b></td><td>hoch, runter, links, rechts</td></tr>
+            <tr><td><b>Stretch/Shrink</b></td><td>vor, zurück</td></tr>
+            <tr><td><b>Home</b></td><td>home</td></tr>
+            <tr><td><b>Gripper</b></td><td>nimm, gib, auf, zu</td></tr>
+            <tr><td><b>Rotation</b></td><td>dreh links, dreh rechts</td></tr>
+            <tr><td><b>Stop motion</b></td><td>halt</td></tr>
+            <tr><td><b>Stop</b></td><td>stop</td></tr>
+        </table>
+        """
+        self.infobox_display.setHtml(infobox_html)
+
+        #raw_stream_container.addSpacing(20)
+        raw_stream_container.addWidget(infobox_title)
+        raw_stream_container.addWidget(self.infobox_display, alignment=Qt.AlignCenter)
+
+        raw_stream_container.addStretch()
+
         # Right Stream Wrapper (FaceDetector Preview)
         face_stream_container = QVBoxLayout()
+        face_stream_container.setAlignment(Qt.AlignTop)
         camera_title = QLabel('FaceDetector Preview (Arm)')
         camera_title.setAlignment(Qt.AlignCenter)
         camera_title.setStyleSheet('font-weight: bold; padding-bottom: 4px;')
 
         self.preview_label = QLabel("Waiting for camera stream")
         self.preview_label.setAlignment(Qt.AlignCenter)
-        self.preview_label.setFixedSize(320, 240)
+        self.preview_label.setFixedSize(360, 270)
         self.preview_label.setStyleSheet(
             'background-color: #101010; color: #f0f0f0; border: 2px solid #7a7a7a;'
         )
         face_stream_container.addWidget(camera_title)
         face_stream_container.addWidget(self.preview_label, alignment=Qt.AlignCenter)
+
+        text_output_title = QLabel('System Status')
+        text_output_title.setAlignment(Qt.AlignCenter)
+        text_output_title.setStyleSheet('font-weight: bold; padding-top: -390px; padding-bottom: 4px;')
+
+        status_spacer = QWidget()
+        status_spacer.setFixedHeight(20)
+        face_stream_container.addWidget(status_spacer)
+
+        self.text_output_display = QTextEdit()
+        self.text_output_display.setReadOnly(True)
+        self.text_output_display.setFixedWidth(360)
+        #self.text_output_display.setMinimumHeight(110)
+        self.text_output_display.setFixedHeight(160)
+        self.text_output_display.setStyleSheet(text_style)
+
+        face_stream_container.addWidget(text_output_title)
+        face_stream_container.addWidget(self.text_output_display, alignment=Qt.AlignCenter)
+
+        command_status_title = QLabel('Command Status')
+        command_status_title.setAlignment(Qt.AlignCenter)
+        command_status_title.setStyleSheet('font-weight: bold; padding-top: 10px; padding-bottom: 4px;')
+
+        self.command_status_display = QTextEdit()
+        self.command_status_display.setReadOnly(True)
+        self.command_status_display.setFixedWidth(360)
+        #elf.command_status_display.setMinimumHeight(100)
+        self.command_status_display.setFixedHeight(130)
+  
+
+        self.command_status_display.setStyleSheet(text_style)
+
+        face_stream_container.addWidget(command_status_title)
+        face_stream_container.addWidget(self.command_status_display, alignment=Qt.AlignCenter)
+        face_stream_container.addStretch()
 
         # Add both stream structures to the horizontal streams container
         streams_layout.addLayout(raw_stream_container)
@@ -356,26 +438,29 @@ class RoboArmController(QMainWindow):
         self.error_label.setFixedWidth(346)
         self.error_label.setStyleSheet("color: #d9534f;")
 
-        text_output_title = QLabel('Text Output')
-        text_output_title.setAlignment(Qt.AlignCenter)
-        text_output_title.setStyleSheet('font-weight: bold; padding-top: 10px; padding-bottom: 4px;')
-
-        self.text_output_display = QTextEdit()
-        self.text_output_display.setReadOnly(True)
-        self.text_output_display.setFixedWidth(346)
-        self.text_output_display.setMinimumHeight(100)
-        self.text_output_display.setStyleSheet(text_style)
-
         right_layout.addLayout(streams_layout)
+
+        self.gesten_image_label = QLabel()
+        self.gesten_image_label.setAlignment(Qt.AlignCenter)
+        image_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gallery", "gesten.png")
+        gesten_pixmap = QPixmap(image_path)
+        if not gesten_pixmap.isNull():
+            self.gesten_image_label.setPixmap(gesten_pixmap.scaledToHeight(180, Qt.SmoothTransformation))
+        else:
+            self.gesten_image_label.setText(f"Image not found at: {image_path}")
+            self.gesten_image_label.setStyleSheet("color: red;")
+            
+        right_layout.addSpacing(15)
+        right_layout.addWidget(self.gesten_image_label, alignment=Qt.AlignCenter)
+
         right_layout.addWidget(self.status_label, alignment=Qt.AlignCenter)
         right_layout.addWidget(self.error_label, alignment=Qt.AlignCenter)
-        right_layout.addWidget(text_output_title)
-        right_layout.addWidget(self.text_output_display, alignment=Qt.AlignCenter)
         right_layout.addStretch()
 
         main_layout.addLayout(left_layout, 1)
         main_layout.addSpacing(12)
         main_layout.addLayout(right_layout, 0)
+        main_layout.addSpacing(20)
 
         self._connect_signals()
         self._refresh_displays()
@@ -487,11 +572,16 @@ class RoboArmController(QMainWindow):
         self.pos_display.setText("\n".join(pos_lines) if pos_lines else "No servo telemetry yet")
         self.speed_display.setText("\n".join(speed_lines) if speed_lines else "No speed telemetry yet")
 
+        mic_status = self.speech_state if self.speech_state != 'n/a' else ('active' if self.control_mode in ('LLM', 'AUTO') else 'idle')
+        last_heard = self.last_heard_speech if self.last_heard_speech else 'none'
+
         status_parts = [
             f"Connected: {'yes' if self.status.connected else 'no'}",
             f"Active: {'yes' if self.status.active else 'no'}",
             f"Device: {self.status.device or 'n/a'}",
             f"State: {self.status.status_text or 'n/a'}",
+            f"Mic: {mic_status}",
+            f"Heard: {last_heard}",
         ]
         self.status_label.setText(" | ".join(status_parts))
         self.error_label.setText(self.status.last_error)
@@ -533,31 +623,37 @@ class RoboArmController(QMainWindow):
         gui_active_label = '<span style="color:#2e7d32; font-weight:700;">ACTIVE</span>' if gui_active else '<span style="color:#c62828; font-weight:700;">INACTIVE</span>'
         llm_active_label = '<span style="color:#2e7d32; font-weight:700;">ACTIVE</span>' if llm_active else '<span style="color:#c62828; font-weight:700;">INACTIVE</span>'
 
-        text_lines = [
+        system_status_lines = [
             f"Control mode: {self.control_mode}",
             f"GUI active: {gui_active_label}",
             f"LLM active: {llm_active_label}",
+            f"Face detection: {'enabled' if self.face_detection_enabled else 'disabled'}",
+            f"Gesture control: {'enabled' if self.gesture_control_enabled else 'disabled'}",
+            f"Face status: {face_status}",
+            f"Last error: {self.status.last_error or 'none'}",
+        ]
+        system_text_html = '<br/>'.join(html.escape(line) if '<span' not in line else line for line in system_status_lines)
+        self.text_output_display.setHtml(system_text_html)
+
+        command_status_lines = [
             f"Last control source: {last_command_source}",
             f"Last control action: {last_command_action}",
             f"Last heard speech: {last_heard}",
             f"Last spoken command: {last_spoken}",
             f"Speech status: {self.speech_state}",
             f"Speech info: {self.speech_message}",
-            f"GUI speed: {self.speed_slider.value()}% ({self.move_duration_ms} ms)",
-            f"Face detection: {'enabled' if self.face_detection_enabled else 'disabled'}",
-            f"Gesture control: {'enabled' if self.gesture_control_enabled else 'disabled'}",
             f"Gesture status: {self.gesture_summary.gesture} -> {self.gesture_summary.action or 'n/a'} "
             f"(hands={self.gesture_summary.num_hands})",
-            f"Face status: {face_status}",
-            f"Center: x={center_x if center_x is not None else 'n/a'}, y={center_y if center_y is not None else 'n/a'}",
-            f"BBox: w={bbox_w if bbox_w is not None else 'n/a'}, h={bbox_h if bbox_h is not None else 'n/a'}",
-            f"Last error: {self.status.last_error or 'none'}",
         ]
-        text_html = '<br/>'.join(html.escape(line) if '<span' not in line else line for line in text_lines)
-        self.text_output_display.setHtml(text_html)
+        command_text_html = '<br/>'.join(html.escape(line) if '<span' not in line else line for line in command_status_lines)
+        self.command_status_display.setHtml(command_text_html)
 
     def _spin_ros_once(self) -> None:
-        rclpy.spin_once(self.node, timeout_sec=0.0)
+        if rclpy.ok():
+            try:
+                rclpy.spin_once(self.node, timeout_sec=0.0)
+            except Exception:
+                pass
 
     def _send_action(self, action: str) -> None:
         if action not in {"power_on", "power_off", "home", "refresh"} and not self.status.active:
@@ -814,10 +910,40 @@ class RoboArmController(QMainWindow):
                     continue
                 painter.drawEllipse(point_xy[0] - 3, point_xy[1] - 3, 6, 6)
 
-        if self.gesture_summary.gesture not in ('none', 'unknown', ''):
-            label = f"{self.gesture_summary.gesture} -> {self.gesture_summary.action or 'n/a'}"
-            painter.setPen(QPen(QColor(255, 255, 0), 1))
-            painter.drawText(10, 20, label)
+        # Draw large gesture information box at top-left
+        if self.gesture_summary.num_hands > 0:
+            # Determine text color based on confidence
+            conf = self.gesture_summary.confidence
+            if conf >= 0.8:
+                text_color = QColor(0, 255, 0)  # Green for high confidence
+            elif conf >= 0.6:
+                text_color = QColor(255, 255, 0)  # Yellow for medium confidence
+            else:
+                text_color = QColor(255, 165, 0)  # Orange for lower confidence
+
+            # Build info lines
+            info_lines = [
+                f"Gesture: {self.gesture_summary.gesture.replace('_', ' ').title()}",
+                f"Action: {(self.gesture_summary.action or 'n/a').replace('_', ' ').title()}",
+                f"Confidence: {self.gesture_summary.confidence * 100:.1f}%",
+                f"Hands: {self.gesture_summary.num_hands}",
+            ]
+            if abs(self.gesture_summary.wrist_angle_deg) > 1:
+                info_lines.append(f"Wrist: {self.gesture_summary.wrist_angle_deg:.1f}°")
+
+            # Draw semi-transparent background box
+            painter.setOpacity(0.85)
+            bg_color = QColor(0, 0, 0)
+            painter.fillRect(5, 5, 280, 20 + len(info_lines) * 18, bg_color)
+            painter.setOpacity(1.0)
+
+            # Draw text
+            painter.setPen(QPen(text_color, 1))
+            painter.setFont(painter.font())
+            y_pos = 20
+            for line in info_lines:
+                painter.drawText(10, y_pos, line)
+                y_pos += 18
 
         painter.end()
 

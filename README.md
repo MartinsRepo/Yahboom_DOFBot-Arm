@@ -1,192 +1,178 @@
-# Yahboom DOFBot Arm
+# Yahboom DOFBot Arm (ROS 2 Jazzy Containerized Control)
 
 ![Yahboom DOFBot Arm](gallery/arm.png)
 
-This repository is Docker-only. The supported workflow is to build and run the ROS 2 Jazzy stack inside Docker and launch the Qt GUI from the container.
+A high-performance, containerized control stack for the **Yahboom DOFBOT SE 6DOF** robotic arm built on **ROS 2 Jazzy**, **MediaPipe**, **PyQt5**, and **Vosk / Ollama** AI integration.
 
-## What’s kept
+The system is optimized for **Windows CPU execution** (no NVIDIA CUDA GPU required) using **Podman** (or Docker Desktop) and **WSL2**.
 
-- `docker/` - Dockerfile, compose file, and container entrypoint
-- `src/` - ROS 2 packages for the arm bridge and MediaPipe detectors
-- `third_party/Arm_Lib/` - vendor arm library copied into the image
-- `RoboControl.py` - Qt entrypoint used inside the container
-- `requirements-jazzy.txt` - Python dependencies for the image build
-- `start_robocontrol_container_gui.sh` - Docker-only launcher for the GUI container
-- `.env.example` - optional environment template for device paths and detector flags
+---
 
-## Build and run
+## 🌟 Key Features
 
-Quick Start profiles:
+- **Dual Camera Stream Architecture**:
+  - **Left Window (`Camera Stream Webcam`)**: Renders host PC Webcam feed with live MediaPipe **Hand Landmark Skeletons** and gesture recognition.
+  - **Right Window (`FaceDetector Preview Arm`)**: Renders Arm Camera feed with live MediaPipe **Face Detection** bounding boxes and keypoints.
+- **Hardware Integration**: DirectShow host camera streamer for zero-latency 30 FPS video bypass, and automated USB serial forwarding for the CH340 servo controller (`/dev/ttyUSB0`).
+- **Offline Speech Control & Local LLM Integration**:
+  - Offline **Vosk** speech recognition (German & English grammar modes).
+  - Integration with **Ollama** LLMs (e.g. `qwen3.5:9b`, `codegemma:7b`, `llama3.1:8b`) for natural language robot instruction execution.
+  - Windows microphone input bridged seamlessly into the container via **WSLg PulseAudio**.
+- **PyQt5 Control GUI**: Interactive GUI with continuous press-and-hold servo movement, dynamic speed control, telemetry feedback, and mode switching (`GUI`, `LLM`, `AUTO`).
 
-| Profile | Speech | Voice | Command |
-|---|---|---|---|
-| German | de | de | `ENABLE_LLM_CONTROLLER=1 ENABLE_SPEECH_CONTROLLER=1 DOFBOT_CONTROL_MODE=AUTO DOFBOT_STRICT_SAFETY=1 DOFBOT_LLM_PROVIDER=ollama DOFBOT_OLLAMA_MODEL=llama3.1:8b DOFBOT_AUDIO_DEVICE=/dev/snd DOFBOT_SPEECH_DEVICE=HD-3000 DOFBOT_SPEECH_LANGUAGE=de DOFBOT_VOICE_OUTPUT_ENABLED=1 DOFBOT_VOICE_OUTPUT_VOICE=de ./start_robocontrol_container_gui.sh` |
-| English (US) | en | en-us | `ENABLE_LLM_CONTROLLER=1 ENABLE_SPEECH_CONTROLLER=1 DOFBOT_CONTROL_MODE=AUTO DOFBOT_STRICT_SAFETY=1 DOFBOT_LLM_PROVIDER=ollama DOFBOT_OLLAMA_MODEL=llama3.1:8b DOFBOT_AUDIO_DEVICE=/dev/snd DOFBOT_SPEECH_DEVICE=HD-3000 DOFBOT_SPEECH_LANGUAGE=en DOFBOT_VOICE_OUTPUT_ENABLED=1 DOFBOT_VOICE_OUTPUT_VOICE=en-us ./start_robocontrol_container_gui.sh` |
+> 📖 **Architecture Documentation**: For detailed technical diagrams, sequence charts, and Agent Tool Control specifications, see [Architecture Documentation](doc/Architecture.md).
 
-German speech + German voice output:
+---
 
-```bash
-ENABLE_LLM_CONTROLLER=1 ENABLE_SPEECH_CONTROLLER=1 DOFBOT_CONTROL_MODE=AUTO DOFBOT_STRICT_SAFETY=1 DOFBOT_LLM_PROVIDER=ollama DOFBOT_OLLAMA_MODEL=llama3.1:8b DOFBOT_AUDIO_DEVICE=/dev/snd DOFBOT_SPEECH_DEVICE=HD-3000 DOFBOT_SPEECH_LANGUAGE=de DOFBOT_VOICE_OUTPUT_ENABLED=1 DOFBOT_VOICE_OUTPUT_VOICE=de ./start_robocontrol_container_gui.sh
+## ⚙️ Prerequisites & System Setup (Windows)
+
+Before running the container stack on Windows, ensure the following prerequisites are installed and configured:
+
+### 1. Windows Subsystem for Linux (WSL2) & WSLg
+Make sure WSL2 is installed and updated to the latest version:
+```powershell
+wsl --update
+```
+*Note: WSLg includes native audio and GUI support (`/mnt/wslg/PulseServer` and `/tmp/.X11-unix`).*
+
+### 2. Container Engine (Podman or Docker)
+Install **Podman Desktop** (recommended) or **Docker Desktop**. Ensure the container engine is running and accessible in PowerShell.
+
+### 3. X11 Display Server
+Install an X11 server for Windows (such as **VcXsrv** or **Xming**) or use native WSLg graphics:
+- **VcXsrv / Xming**: Start with **"Disable access control"** checked (`DISPLAY=172.20.240.1:0`).
+
+### 4. USBIPD for Windows (Serial Port Forwarding)
+The robotic arm uses a **CH340 USB-to-Serial Controller** (`VID_1A86&PID_7523`). Install `usbipd-win` to attach the serial hardware to WSL:
+```powershell
+winget install --exact --id dslab.usbipd-win
+```
+After attaching once or rebooting Windows, run the provided helper script in PowerShell/CMD:
+```cmd
+.\attach_dofbot_usb.bat
+```
+This binds `1a86:7523` and attaches it as `/dev/ttyUSB0` inside WSL.
+
+### 5. Host Ollama LLM (Optional for AI Control)
+Install [Ollama](https://ollama.com/) on your Windows host if you plan to use LLM voice/natural language commands.
+Pull a supported model (e.g., `qwen3.5:9b`):
+```powershell
+ollama pull qwen3.5:9b
+```
+*The launcher script automatically detects installed host models (`qwen3.5:9b`, `codegemma:7b`, `llama3.1:8b`).*
+
+---
+
+## 🚀 Quick Start Guide
+
+Launch the containerized GUI with a single command from PowerShell. The script automatically starts the background host camera bridge, binds audio/serial devices, builds the container image if needed, and opens the GUI.
+
+### 1. German Preset with Gesture Detection (Recommended)
+```powershell
+.\start_robocontrol_container_gui.ps1 -Preset German -EnableGestureDetection
 ```
 
-English speech + English (US) voice output:
-
-```bash
-ENABLE_LLM_CONTROLLER=1 ENABLE_SPEECH_CONTROLLER=1 DOFBOT_CONTROL_MODE=AUTO DOFBOT_STRICT_SAFETY=1 DOFBOT_LLM_PROVIDER=ollama DOFBOT_OLLAMA_MODEL=llama3.1:8b DOFBOT_AUDIO_DEVICE=/dev/snd DOFBOT_SPEECH_DEVICE=HD-3000 DOFBOT_SPEECH_LANGUAGE=en DOFBOT_VOICE_OUTPUT_ENABLED=1 DOFBOT_VOICE_OUTPUT_VOICE=en-us ./start_robocontrol_container_gui.sh
+### 2. English Preset
+```powershell
+.\start_robocontrol_container_gui.ps1 -Preset English -EnableGestureDetection
 ```
 
-That command rebuilds the image, starts the ROS stack in the container, and opens the GUI on the host display through X11.
-
-## License
-
-This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
-
-## Container stack only
-
-If you want the ROS stack without the GUI, use:
-
-```bash
-docker compose -f docker/docker-compose.yml up -d --build
+### 3. Custom Model or Specific Engine
+```powershell
+.\start_robocontrol_container_gui.ps1 -Preset German -OllamaModel "codegemma:7b" -Engine podman
 ```
 
-## LLM and speech control
+---
 
-The stack includes an optional LLM controller node (`llm_controller.py`), a speech input node, and bridge-side command arbitration.
+## 📋 PowerShell Launcher Parameter Reference
 
-Create a runtime config file from the template:
+The PowerShell launcher `start_robocontrol_container_gui.ps1` accepts the following parameters:
 
-```bash
-cp config/llm_controller.example.json config/llm_controller.json
-```
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `-Preset` | String | `Custom` | Preset profile: `German`, `English`, or `Custom`. Sets default language and LLM flags. |
+| `-EnableGestureDetection` | Switch | Off | Enables MediaPipe hand gesture detection on the left webcam preview. |
+| `-EnableFaceDetection` | Switch | On (Presets) | Enables MediaPipe face detection overlay on the right arm camera preview. |
+| `-EnableSpeechController`| Switch | On (Presets) | Activates the Vosk offline speech recognition node. |
+| `-EnableLlmController` | Switch | On (Presets) | Activates the Ollama LLM natural language instruction execution node. |
+| `-OllamaModel` | String | Auto-detected | Specifies the host Ollama model name (e.g. `qwen3.5:9b`, `codegemma:7b`, `llama3.1:8b`). |
+| `-OllamaBaseUrl` | String | `http://127.0.0.1:11434` | Base URL for the Ollama LLM endpoint. |
+| `-Engine` | String | `auto` | Forces container engine (`podman`, `docker`, or `auto`). |
+| `-SpeechLanguage` | String | `de` / `en` | Vosk speech model language (`de` or `en`). |
+| `-VoiceOutputEnabled` | Switch | On (Presets) | Enables speech audio feedback (`espeak-ng`). |
 
-For LLM-assisted arm control with speech input, start the container with one of the examples above.
+---
 
-All-in-one German example (multi-line):
-
-```bash
-ENABLE_LLM_CONTROLLER=1 \
-ENABLE_SPEECH_CONTROLLER=1 \
-DOFBOT_CONTROL_MODE=AUTO \
-DOFBOT_STRICT_SAFETY=1 \
-DOFBOT_LLM_PROVIDER=ollama \
-DOFBOT_OLLAMA_MODEL=llama3.1:8b \
-DOFBOT_AUDIO_DEVICE=/dev/snd \
-DOFBOT_SPEECH_DEVICE=HD-3000 \
-DOFBOT_SPEECH_LANGUAGE=de \
-DOFBOT_VOICE_OUTPUT_ENABLED=1 \
-DOFBOT_VOICE_OUTPUT_VOICE=de \
-./start_robocontrol_container_gui.sh
-```
-
-Recommended runtime settings and related options:
-
-```bash
-DOFBOT_COMMAND_RATE_LIMIT_HZ=8.0
-DOFBOT_LLM_STALE_TIMEOUT_S=2.0
-DOFBOT_MANUAL_OVERRIDE_WINDOW_S=1.5
-DOFBOT_LLM_CONFIG_PATH=/opt/ros/overlay_ws/config/llm_controller.json
-DOFBOT_LLM_PROVIDER=ollama
-DOFBOT_OLLAMA_BASE_URL=http://127.0.0.1:11434
-DOFBOT_OLLAMA_MODEL=llama3.1:8b
-DOFBOT_LLM_API_TOKEN=      # optional, only needed for protected HTTP/LLM endpoints
-DOFBOT_LLM_REQUEST_TIMEOUT_S=20.0
-DOFBOT_LLM_REQUEST_RETRIES=3
-DOFBOT_LLM_RETRY_BACKOFF_S=1.0
-DOFBOT_LLM_FALLBACK_ON_ERROR=1
-DOFBOT_VOICE_OUTPUT_ENABLED=1
-DOFBOT_VOICE_OUTPUT_VOICE=       # optional espeak voice, e.g. de or en-us
-DOFBOT_VOSK_MODEL_DIR=/opt/ros/overlay_ws/models/vosk-model-small-de-zamia-0.3
-DOFBOT_AUDIO_DEVICE=/dev/snd
-DOFBOT_SPEECH_DEVICE=HD-3000
-DOFBOT_SPEECH_SAMPLE_RATE=16000
-DOFBOT_SPEECH_BLOCKSIZE=2000
-DOFBOT_SPEECH_LANGUAGE=de
-DOFBOT_SPEECH_TOPIC=roboarm/speech_input
-DOFBOT_SPEECH_FLUSH_SILENCE_S=0.8
-DOFBOT_MOVE_DURATION_MS=120
-DOFBOT_HOLD_REPEAT_INITIAL_DELAY_MS=260
-DOFBOT_HOLD_REPEAT_INTERVAL_MS=140
-```
-
-The controller supports these providers:
-
-- `ollama` for local models through Ollama
-- `http` for a generic JSON endpoint, bearer token optional
-- `heuristic` for no LLM call
-
-For local Ollama tests, start with one of these models:
-
-- `llama3.1:8b`
-- `gemma3:12b`
-- `qwen3.5:9b`
-
-VOSK provides the offline speech recognizer used by the container. See [VOSK](https://alphacephei.com/vosk/) for model downloads and background information. This setup defaults to `models/vosk-model-small-de-zamia-0.3` for German speech control. The launcher mounts `/dev/snd` automatically when it exists on the host, so the microphone stream can be captured inside the container. The recognized transcript is published to `roboarm/speech_input` and consumed by the LLM controller as prompt input.
-
-Quick microphone sanity check (prints recognized speech directly in terminal):
-
-```bash
-python3 src/arm_mediapipe/scripts/vosk_terminal_test.py --show-partials
-```
-
-List capture devices first if needed:
-
-```bash
-python3 src/arm_mediapipe/scripts/vosk_terminal_test.py --list-devices
-```
-
-If no speech is detected, set `DOFBOT_SPEECH_DEVICE` to a capture-device name substring, for example `HD-3000`, `USB Audio`, or a PortAudio input index.
-
-Speech activation works as a persistent command mode:
-
-- Say the configured wake word (default German: `martin`, default English: `robby`) to activate speech command mode.
-- After activation, the arm accepts speech commands without repeating the wake word.
-- Motion commands can run continuously.
-- Say `Halt` to stop motion only and keep speech command mode armed.
-- Say `Stop` (or `Stopp`) for full stop and leave speech command mode (back to listening).
-
-Supported speech commands include:
-
-- German: `hoch`, `runter`, `links`, `rechts`, `vor` (Stretch), `zurück` (Shrink), `home`, `nimm`/`zu` (close), `gib`/`auf` (open), `aus`, `an`, `stop`, `stopp`, `halt`
-- English: `up`, `down`, `left`, `right`, `home`, `grip`, `release`, `power on`, `power off`, `stop`, `halt`
-- Motion aliases: `forward` (Stretch), `backward` (Shrink)
-- Rotation (German): `dreh links`, `dreh rechts`
-- Rotation (English): `rotate grip left`, `rotate grip right`, `wrist left`, `wrist right`
-
-Voice output is optional and offline via `espeak-ng`. When `DOFBOT_VOICE_OUTPUT_ENABLED=1`, the LLM controller announces executed actions on the system audio output.
-
-Mode behavior:
-
-- `GUI`: panel commands are accepted; LLM commands are rejected.
-- `LLM`: LLM commands are accepted; panel commands are limited to emergency actions (`power_off`, `home`, `refresh`).
-- `AUTO`: both sources are allowed, and recent manual input suppresses LLM commands for a short window.
-
-The GUI has a `MODE` button to cycle through `GUI`, `LLM`, and `AUTO` at runtime.
-
-GUI motion controls:
-
-- Direction, gripper turn, stretch, and shrink buttons support press-and-hold continuous movement.
-- A speed slider in the GUI adjusts movement duration live.
-- Slider speed is mapped to bridge `move_duration_ms` (higher slider value means faster movement).
-- **REFRESH button**: Synchronizes the arm's internal motion duration setting with the GUI's current speed slider value without triggering any arm movement. Useful for applying a new duration default or resyncing the arm state with the GUI.
-- **ON/OFF button**: Powers the arm on or off.
-- **HOME button**: Moves all servos to their home positions.
-- **MODE button**: Cycles through control modes (`GUI`, `LLM`, `AUTO`).
-- **FACE DETECTION button**: Toggles face detection overlay on/off in the preview stream.
-
-## Arm Control
+## 🖥️ PyQt5 GUI Interface & Control Modes
 
 ![Arm Control panel](gallery/panel.png)
 
-## Product Links (DOFBOT SE 6DOF)
+### Control Modes
+- **`GUI`**: Manual control via GUI buttons and sliders. LLM commands are rejected.
+- **`LLM`**: Automated control via Ollama LLM and speech input. Manual panel inputs are limited to emergency stop/home.
+- **`AUTO`**: Dual control mode. Accepts both LLM commands and GUI input. Manual GUI actions temporarily override LLM execution for safety.
 
-- Official product page: https://category.yahboom.net/products/dofbot-se
-- Official tutorial page: http://www.yahboom.net/study/DOFBOT_SE
-- Yahboom store search: https://category.yahboom.net/search?q=DOFBOT+SE
-- AliExpress search: https://de.aliexpress.com/w/wholesale-Yahboom-DOFBOT-SE-6DOF.html
+### Main GUI Controls
+- **Left Window (`Camera Stream Webcam`)**: Displays the secondary PC webcam feed with green hand landmark skeletons and active gesture labels when **Gesture Control** is active.
+- **Right Window (`FaceDetector Preview Arm`)**: Displays the DOFBot arm camera feed with blue face bounding boxes and facial landmark points when **Face Detection** is active.
+- **Movement Buttons**: Press and hold direction, stretch (`vor`), shrink (`zurück`), and wrist rotation buttons for continuous movement.
+- **Speed Slider & REFRESH**: Dynamically adjusts servo movement duration (`move_duration_ms`). Clicking **REFRESH** syncs the slider value to the arm controller.
+- **HOME / POWER**: Powers arm servos on/off or resets all 6 joints to default home posture.
 
+---
 
-## Notes
+## 🎤 Speech Recognition & Voice Commands
 
-- The arm serial device is usually available under `/dev/serial/by-id/...`.
-- The camera is published from `/mediapipe/camera/image/compressed`.
-- Face detection and pose nodes are controlled through the environment flags in `.env` or the launcher command.
+Offline speech recognition is powered by **Vosk**. Speech capture is routed from the Windows host USB microphone via WSLg PulseAudio (`/mnt/wslg/PulseServer`).
+
+### Activation & Safety Phrases
+1. **Wake Words**: Say **`martin`** (German) or **`robby`** (English) to activate voice command mode.
+2. **Motion Stop**: Say **`Halt`** to immediately stop servo movement while keeping speech command mode active.
+3. **Full Deactivation**: Say **`Stop`** or **`Stopp`** to halt motion and exit voice command mode.
+
+### Supported Voice Commands
+- **Directions**: `hoch` (up), `runter` (down), `links` (left), `rechts` (right)
+- **Reach**: `vor` (stretch/forward), `zurück` (shrink/backward)
+- **Gripper**: `nimm` / `zu` (close grip), `gib` / `auf` (open grip)
+- **Wrist Rotation**: `dreh links` (turn wrist left), `dreh rechts` (turn wrist right)
+- **System**: `home`, `an` (power on), `aus` (power off), `halt`, `stop`
+
+---
+
+## 🛠️ Testing & Diagnostic Utilities
+
+Helper diagnostic scripts are located under [`src/testing`](file:///c:/Users/humme/workspace/Yahboom_DOFBot-Arm/src/testing):
+
+- **[attach_dofbot_usb.bat](file:///c:/Users/humme/workspace/Yahboom_DOFBot-Arm/attach_dofbot_usb.bat)**: One-click script to attach the CH340 serial hardware (`1a86:7523`) to WSL.
+- **[src/testing/test_win_cam.py](file:///c:/Users/humme/workspace/Yahboom_DOFBot-Arm/src/testing/test_win_cam.py)**: Probes available Windows host USB camera devices and tests resolution/FPS.
+- **[src/testing/test_container_cam.py](file:///c:/Users/humme/workspace/Yahboom_DOFBot-Arm/src/testing/test_container_cam.py)**: Tests camera device paths inside the Linux container.
+- **[src/testing/vosk_terminal_test.py](file:///c:/Users/humme/workspace/Yahboom_DOFBot-Arm/src/testing/vosk_terminal_test.py)**: Standalone terminal utility to test Vosk microphone input and grammar recognition:
+  ```powershell
+  podman run --rm -v /mnt/wslg/PulseServer:/tmp/pulse-socket:rw -e PULSE_SERVER=unix:/tmp/pulse-socket dofbot_ros:latest python3 /opt/ros/overlay_ws/src/testing/vosk_terminal_test.py --list-devices
+  ```
+
+---
+
+## 📁 Repository Structure
+
+- `start_robocontrol_container_gui.ps1` - Primary Windows launcher script (CPU mode, Podman/Docker auto-detection).
+- `host_camera_streamer.py` - Host DirectShow dual camera bridge writing frame buffer files to `docker_data/log/`.
+- `attach_dofbot_usb.bat` - USBIPD attachment script for CH340 arm serial controller.
+- `robocontrol_gui.py` - PyQt5 dual-preview GUI control interface.
+- `RoboControl.py` - Container entrypoint script initializing the ROS 2 node and Qt application.
+- `docker/` - Container `Dockerfile`, compose file, and ROS entrypoint script.
+- `src/arm_mediapipe/` - ROS 2 package for LLM controller, speech input, and launch files.
+- `src/dofbot_mediapipe/` - ROS 2 package for MediaPipe camera driver, face detection, and gesture recognition.
+- `src/testing/` - Diagnostic test scripts for cameras, audio, and speech recognition.
+- `third_party/Arm_Lib/` - Vendor python library for Yahboom DOFBOT servo serial communication.
+
+---
+
+## 📜 License
+
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
+
+## 🔗 Official Hardware Links (Yahboom DOFBOT SE)
+
+- [Yahboom DOFBOT SE Product Page](https://category.yahboom.net/products/dofbot-se)
+- [Yahboom DOFBOT SE Tutorial & Documentation](http://www.yahboom.net/study/DOFBOT_SE)

@@ -59,18 +59,17 @@ COMMAND_GRAMMAR_DE = [
     # Directions
     "hoch", "runter", "links", "rechts",
     # Stretch / shrink
-    "vor", "zurück",
+    "vor", "zurueck", "zuruck", "rueck",
     # Home
-    "home", 
+    "home",
     # Gripper
-    "nimm", "gib",
-    "auf", "zu",
+    "nimm", "gib", "auf", "zu",
     # Rotation gripper
-    "dreh links", "dreh rechts",
+    "dreh",
     # Stop arm motion
-    "halt", 
+    "halt",
     # Stop
-    "stop", "stopp", 
+    "stopp",
     # Catch-all for unrecognised speech
     "[unk]",
 ]
@@ -207,7 +206,7 @@ class SpeechInputNode(Node):
             self.get_logger().info(f"Speech control mode updated: {previous_mode} -> {mode}")
 
     def _capture_allowed(self) -> bool:
-        return self.control_mode != CONTROL_MODE_GUI
+        return True
 
     def _publish_status(self, state: str, message: str) -> None:
         payload = {

@@ -46,7 +46,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('serial_device', default_value='auto'),
         DeclareLaunchArgument('arm_lib_dir', default_value=''),
-        DeclareLaunchArgument('camera_device', default_value='/dev/video2'),
+        DeclareLaunchArgument('camera_device', default_value='/dev/video0'),
         DeclareLaunchArgument('camera_width', default_value='640'),
         DeclareLaunchArgument('camera_height', default_value='480'),
         DeclareLaunchArgument('camera_fps', default_value='15'),
@@ -92,6 +92,7 @@ def generate_launch_description():
                 'DOFBOT_CAMERA_ROTATE_180': camera_rotate_180,
                 'DOFBOT_CAMERA_NODE_NAME': 'dofbot_camera_driver',
                 'DOFBOT_CAMERA_TOPIC': '/mediapipe/camera/image/compressed',
+                'DOFBOT_SHARED_FRAME_PATH': '/opt/ros/overlay_ws/runtime_log/latest_frame.jpg',
             },
         ),
 
@@ -108,6 +109,7 @@ def generate_launch_description():
                 'DOFBOT_CAMERA_ROTATE_180': webcam_rotate_180,
                 'DOFBOT_CAMERA_NODE_NAME': 'dofbot_webcam_driver',
                 'DOFBOT_CAMERA_TOPIC': '/mediapipe/webcam/image/compressed',
+                'DOFBOT_SHARED_FRAME_PATH': '/opt/ros/overlay_ws/runtime_log/webcam_frame.jpg',
             },
         ),
 
@@ -159,9 +161,7 @@ def generate_launch_description():
                 PythonExpression([
                     "'",
                     enable_speech_controller,
-                    "'.lower() in ('1', 'true', 'yes', 'on') and '",
-                    control_mode,
-                    "'.upper() != 'GUI'",
+                    "'.lower() in ('1', 'true', 'yes', 'on')"
                 ])
             ),
             additional_env={
@@ -198,6 +198,7 @@ def generate_launch_description():
                 'DOFBOT_SHOW_PREVIEW': show_preview,
                 'DOFBOT_GESTURE_MIN_DET_CONF': gesture_min_det_conf,
                 'DOFBOT_GESTURE_MIN_TRK_CONF': gesture_min_trk_conf,
+                'DOFBOT_GESTURE_CAMERA_TOPIC': '/mediapipe/webcam/image/compressed',
             },
             condition=IfCondition(enable_gesture_detection),
         ),

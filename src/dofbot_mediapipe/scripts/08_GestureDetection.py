@@ -159,15 +159,13 @@ class GestureClassifier:
 
     # ── finger state ─────────────────────────────────────────────────────────
 
-    @staticmethod
-    def _is_finger_extended(lm: List[LandmarkPoint], tip: int, pip: int) -> bool:
-        """A finger is extended when its tip is above (lower y) its PIP joint."""
-        return lm[tip].y < lm[pip].y - FINGER_CURL_MARGIN
+    def _is_finger_extended(self, lm: List[LandmarkPoint], tip: int, pip: int) -> bool:
+        """A finger is extended when its tip is further from the wrist than its PIP joint."""
+        return self._dist(lm[tip], lm[WRIST]) > self._dist(lm[pip], lm[WRIST]) + FINGER_CURL_MARGIN
 
-    @staticmethod
-    def _is_finger_curled(lm: List[LandmarkPoint], tip: int, mcp: int) -> bool:
-        """A finger is curled when its tip is below (higher y) its MCP joint."""
-        return lm[tip].y > lm[mcp].y + FINGER_CURL_MARGIN
+    def _is_finger_curled(self, lm: List[LandmarkPoint], tip: int, mcp: int) -> bool:
+        """A finger is curled when its tip is closer to the wrist than its MCP joint."""
+        return self._dist(lm[tip], lm[WRIST]) < self._dist(lm[mcp], lm[WRIST]) + FINGER_CURL_MARGIN
 
     def _fingers_extended(self, lm: List[LandmarkPoint]) -> Tuple[bool, bool, bool, bool]:
         """Return (index, middle, ring, pinky) extended flags."""
@@ -180,8 +178,8 @@ class GestureClassifier:
 
     def _all_fingers_extended(self, lm: List[LandmarkPoint]) -> bool:
         idx, mid, ring, pinky = self._fingers_extended(lm)
-        # Thumb: tip above IP joint (for extended check)
-        thumb_ext = lm[THUMB_TIP].y < lm[THUMB_IP].y - FINGER_CURL_MARGIN
+        # Thumb: tip further from wrist than IP joint
+        thumb_ext = self._is_finger_extended(lm, THUMB_TIP, THUMB_IP)
         return all([thumb_ext, idx, mid, ring, pinky])
 
     def _all_fingers_curled(self, lm: List[LandmarkPoint]) -> bool:
@@ -190,9 +188,9 @@ class GestureClassifier:
         mid_c = self._is_finger_curled(lm, MIDDLE_TIP, MIDDLE_MCP)
         ring_c = self._is_finger_curled(lm, RING_TIP, RING_MCP)
         pinky_c = self._is_finger_curled(lm, PINKY_TIP, PINKY_MCP)
-        # Thumb curled: tip is closer to palm center than MCP
-        thumb_c = lm[THUMB_TIP].x > lm[THUMB_IP].x  # simplified: thumb folded inward
-        return all([idx_c, mid_c, ring_c, pinky_c])
+        # Thumb curled: tip is closer to wrist than IP
+        thumb_c = self._is_finger_curled(lm, THUMB_TIP, THUMB_IP)
+        return all([thumb_c, idx_c, mid_c, ring_c, pinky_c])
 
     def _non_thumb_index_curled(self, lm: List[LandmarkPoint]) -> bool:
         """Middle, ring, pinky are curled (for thumb-direction & pinch/V gestures)."""

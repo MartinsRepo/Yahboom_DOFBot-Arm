@@ -33,13 +33,14 @@ COPY third_party ./third_party
 COPY config ./config
 COPY models ./models
 
-RUN source /opt/ros/jazzy/setup.bash && \
-    colcon build --packages-select arm_mediapipe dofbot_mediapipe
+RUN /bin/bash -c "source /opt/ros/jazzy/setup.bash && \
+    colcon build --packages-select arm_mediapipe dofbot_mediapipe"
 
 FROM pydeps AS runner
 ARG OVERLAY_WS
 ENV OVERLAY_WS=${OVERLAY_WS}
 ENV PYTHONPATH=${OVERLAY_WS}
+ENV CUDA_VISIBLE_DEVICES=""
 
 SHELL ["/bin/bash", "-c"]
 
@@ -48,6 +49,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     espeak-ng \
     fontconfig \
     fonts-dejavu-core \
+    pulseaudio \
+    pulseaudio-utils \
+    libasound2-plugins \
+    alsa-utils \
     libx11-xcb1 \
     libxcb1 \
     libxcb-cursor0 \
@@ -75,6 +80,7 @@ COPY models ./models
 COPY RoboControl.py ./RoboControl.py
 COPY robocontrol_gui.py ./robocontrol_gui.py
 COPY robocontrol_bootstrap.py ./robocontrol_bootstrap.py
+COPY gallery ./gallery
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

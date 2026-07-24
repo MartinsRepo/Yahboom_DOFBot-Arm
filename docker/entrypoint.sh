@@ -13,16 +13,15 @@ if [[ -d "$OVERLAY_WS/third_party/Arm_Lib" && -z "${DOFBOT_ARM_LIB_DIR:-}" ]]; t
   export DOFBOT_ARM_LIB_DIR="$OVERLAY_WS/third_party/Arm_Lib"
 fi
 
-if [[ -n "${DOFBOT_SERIAL_DEVICE:-}" && ! -e "${DOFBOT_SERIAL_DEVICE}" ]]; then
-  echo "Warning: serial device ${DOFBOT_SERIAL_DEVICE} is not visible inside container." >&2
-  echo "Ensure docker compose maps the device via the devices section." >&2
+if [[ -n "${DOFBOT_SERIAL_DEVICE:-}" && "${DOFBOT_SERIAL_DEVICE}" == /dev/* && ! -e "${DOFBOT_SERIAL_DEVICE}" ]]; then
+  echo "Notice: serial device ${DOFBOT_SERIAL_DEVICE} is not attached; arm bridge will run in Simulation Mode." >&2
 fi
 
 launch_stack() {
   ros2 launch arm_mediapipe docker_stack.launch.py \
     serial_device:="${DOFBOT_SERIAL_DEVICE:-auto}" \
     arm_lib_dir:="${DOFBOT_ARM_LIB_DIR:-}" \
-    camera_device:="${DOFBOT_CAMERA_DEVICE:-/dev/video2}" \
+    camera_device:="${DOFBOT_CAMERA_DEVICE:-/dev/video0}" \
     camera_width:="${DOFBOT_CAMERA_WIDTH:-640}" \
     camera_height:="${DOFBOT_CAMERA_HEIGHT:-480}" \
     camera_fps:="${DOFBOT_CAMERA_FPS:-15}" \

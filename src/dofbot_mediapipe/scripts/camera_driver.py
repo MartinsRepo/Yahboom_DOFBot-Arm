@@ -49,15 +49,23 @@ class CameraDriver(Node):
         self.rotate_180 = os.environ.get('DOFBOT_CAMERA_ROTATE_180', '1').strip().lower() in (
             '1', 'true', 'yes', 'on'
         )
+        self.camera_device = camera_device
+        self.shared_frame_path = os.environ.get(
+            'DOFBOT_SHARED_FRAME_PATH', '/opt/ros/overlay_ws/runtime_log/latest_frame.jpg'
+        )
+        self.last_valid_frame = None
         self.capture = cv.VideoCapture(int(camera_device) if camera_device.isdigit() else camera_device)
         self.capture.set(6, cv.VideoWriter.fourcc('M', 'J', 'P', 'G'))
         self.capture.set(cv.CAP_PROP_FRAME_WIDTH, width)
         self.capture.set(cv.CAP_PROP_FRAME_HEIGHT, height)
+        self._consecutive_failures = 0
         interval = 1.0 / max(float(fps), 1.0)
         self.timer = self.create_timer(interval, self._publish_frame)
 
         if not self.capture.isOpened():
-            self.get_logger().error(f'Failed to open camera device: {camera_device}')
+            self.get_logger().info(
+                f'V4L2 camera device {camera_device} not opened directly; listening for shared host camera stream or V4L2.'
+            )
         else:
             transform = 'enabled' if self.rotate_180 else 'disabled'
             self.get_logger().info(
@@ -65,12 +73,37 @@ class CameraDriver(Node):
             )
 
     def _publish_frame(self):
-        if not self.capture.isOpened():
+        frame = None
+        if self.capture is not None and self.capture.isOpened():
+            ok, cap_frame = self.capture.read()
+            if ok and cap_frame is not None and cap_frame.size > 0:
+                frame = cap_frame
+                self.last_valid_frame = cap_frame
+                self._consecutive_failures = 0
+            else:
+                self._consecutive_failures += 1
+
+        if frame is None and os.path.exists(self.shared_frame_path):
+            try:
+                shared_frame = cv.imread(self.shared_frame_path)
+                if shared_frame is not None and shared_frame.size > 0:
+                    frame = shared_frame
+                    self.last_valid_frame = shared_frame
+                    self._consecutive_failures = 0
+            except Exception:
+                pass
+
+        if frame is None and self.last_valid_frame is not None:
+            frame = self.last_valid_frame
+            self._consecutive_failures = 0
+
+        if frame is None:
+            if self._consecutive_failures == 1 or self._consecutive_failures % 100 == 0:
+                self.get_logger().warning(
+                    f'No camera frame available from {self.camera_device} or shared host stream.'
+                )
             return
-        ok, frame = self.capture.read()
-        if not ok:
-            self.get_logger().warning('Failed to read camera frame')
-            return
+
         if self.rotate_180:
             frame = cv.rotate(frame, cv.ROTATE_180)
         ok, encoded = cv.imencode('.jpg', frame, [int(cv.IMWRITE_JPEG_QUALITY), 90])

@@ -34,7 +34,10 @@ class Arm_Device(object):
 		self.state = 0
 		self.speech_state = 0
 		
-		self.ser = serial.Serial(com, 115200,timeout=.2)
+		if isinstance(com, str) and (com.startswith("socket://") or com.startswith("rfc2217://")):
+			self.ser = serial.serial_for_url(com, baudrate=115200, timeout=.2)
+		else:
+			self.ser = serial.Serial(com, 115200, timeout=.2)
 		sleep(.2)
 		
 	# 根据数据帧的类型来做出对应的解析

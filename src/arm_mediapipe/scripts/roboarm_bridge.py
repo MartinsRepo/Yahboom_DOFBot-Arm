@@ -34,6 +34,7 @@ DEFAULT_ARM_LIB_DIR = resolve_default_arm_lib_dir()
 DEFAULT_DEVICE_CANDIDATES = [
     "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0",
     "/dev/ttyUSB0",
+    "/dev/ttyACM0",
 ]
 
 
@@ -41,21 +42,26 @@ def resolve_default_device() -> str:
     for candidate in DEFAULT_DEVICE_CANDIDATES:
         if os.path.exists(candidate):
             return candidate
-    return DEFAULT_DEVICE_CANDIDATES[-1]
+    return ""
 
 
 def build_serial_device_candidates(preferred: str) -> list[str]:
     candidates: list[str] = []
     preferred = (preferred or "").strip()
-    if preferred.lower() in {"auto", "default", "none"}:
+    if preferred.lower() in {"auto", "default", "none", "simulation"}:
         preferred = ""
 
     def add_candidate(path: str) -> None:
         if not path:
             return
-        normalized = os.path.realpath(path) if os.path.exists(path) else path
-        if normalized not in candidates:
-            candidates.append(normalized)
+        if path.startswith("socket://") or path.startswith("rfc2217://"):
+            if path not in candidates:
+                candidates.append(path)
+            return
+        if os.path.exists(path):
+            normalized = os.path.realpath(path)
+            if normalized not in candidates:
+                candidates.append(normalized)
 
     add_candidate(preferred)
 
@@ -73,7 +79,7 @@ def build_serial_device_candidates(preferred: str) -> list[str]:
 
 DEFAULT_DEVICE = resolve_default_device()
 DEFAULT_HOME_JOINTS = [90, 130, 0, 0, 90, 30]
-DEFAULT_MOVE_DURATION_MS = int(os.environ.get("DOFBOT_MOVE_DURATION_MS", "120"))
+DEFAULT_MOVE_DURATION_MS = int(os.environ.get("DOFBOT_MOVE_DURATION_MS", "650"))
 DEFAULT_POLL_PERIOD = 0.25
 DEFAULT_BASE_STEP_DEG = float(os.environ.get("DOFBOT_BASE_STEP_DEG", "1.5"))
 DEFAULT_SHOULDER_STEP_DEG = float(os.environ.get("DOFBOT_SHOULDER_STEP_DEG", "1.5"))
@@ -220,12 +226,16 @@ class RoboArmBridge(Node):
             return False
 
         candidate_paths = build_serial_device_candidates(self.device)
-        if candidate_paths:
-            self.get_logger().info(
-                "Serial auto-detect candidates: " + ", ".join(candidate_paths)
-            )
-        else:
-            self.get_logger().warning("Serial auto-detect found no candidate devices")
+        if not candidate_paths:
+            self.arm = None
+            self.connected = False
+            self.active = True
+            self.last_error = ""
+            self.status_text = "Simulation Mode"
+            self.get_logger().info("No physical serial device connected; arm controller running in Simulation Mode.")
+            return False
+
+        self.get_logger().info("Serial auto-detect candidates: " + ", ".join(candidate_paths))
         failed_details: list[str] = []
         fallback_arm = None
         fallback_device = ""
@@ -271,14 +281,14 @@ class RoboArmBridge(Node):
             )
             return True
 
-        attempted = ", ".join(candidate_paths) if candidate_paths else self.device
-        details = "; ".join(failed_details) if failed_details else "no serial candidates"
+        attempted = ", ".join(candidate_paths)
+        details = "; ".join(failed_details)
         self.arm = None
         self.connected = False
-        self.active = False
-        self.last_error = f"Failed opening any serial device. attempted=[{attempted}] details=[{details}]"
-        self.status_text = "Disconnected"
-        self.get_logger().error(self.last_error)
+        self.active = True
+        self.last_error = f"Serial port open failed (attempted=[{attempted}]). Operating in Simulation mode."
+        self.status_text = "Simulation Mode"
+        self.get_logger().info(self.last_error)
         return False
 
     def _probe_arm_connection(self, arm_handle) -> bool:
@@ -474,21 +484,23 @@ class RoboArmBridge(Node):
         self.publish_state()
 
     def _is_source_allowed(self, source: str, action: str, now_s: float, payload: dict) -> bool:
-        if source == "llm" and self.control_mode == CONTROL_MODE_GUI:
+        is_llm_source = source in ("llm", "llm_controller", "speech")
+
+        if is_llm_source and self.control_mode == CONTROL_MODE_GUI:
             self.last_reject_reason = "LLM command rejected in GUI mode"
         elif source in ("gui", "gesture") and self.control_mode == CONTROL_MODE_LLM and action not in EMERGENCY_ACTIONS:
             self.last_reject_reason = f"{source.upper()} command rejected in LLM mode"
-        elif source == "llm" and self.control_mode == CONTROL_MODE_AUTO and now_s < self.manual_override_until_s:
+        elif is_llm_source and self.control_mode == CONTROL_MODE_AUTO and now_s < self.manual_override_until_s:
             self.last_reject_reason = "LLM command suppressed by manual override"
         elif (
             self.strict_safety_enabled
-            and source == "llm"
+            and is_llm_source
             and not self.readback_enabled
             and action not in EMERGENCY_ACTIONS
             and self.control_mode == CONTROL_MODE_LLM
         ):
             self.last_reject_reason = "LLM command rejected: readback unavailable"
-        elif self.strict_safety_enabled and source == "llm":
+        elif self.strict_safety_enabled and is_llm_source:
             elapsed = now_s - self.last_command_time_s
             if elapsed < self.command_min_interval_s:
                 self.last_reject_reason = "LLM command rejected: rate limit"
@@ -511,6 +523,8 @@ class RoboArmBridge(Node):
 
         self.last_error = self.last_reject_reason
         self.status_text = "Command rejected"
+        self.publish_state()
+        self.status_text = "Active" if self.active else "Ready"
         return False
 
     def _execute_action(self, action: str) -> None:
@@ -569,12 +583,13 @@ class RoboArmBridge(Node):
         target_joints = list(DEFAULT_HOME_JOINTS)
         deltas = [target - current for target, current in zip(target_joints, self.current_joints)]
         try:
-            self.arm.Arm_serial_servo_write6_array(target_joints, self.move_duration_ms)
+            if self.arm is not None:
+                self.arm.Arm_serial_servo_write6_array(target_joints, self.move_duration_ms)
             self.current_joints = [float(value) for value in target_joints]
             self.commanded_joints = [float(value) for value in target_joints]
             self._record_motion(deltas)
             self.last_error = ""
-            self.status_text = "Home command sent"
+            self.status_text = "Home command sent" + (" (Simulation)" if self.arm is None else "")
         except Exception as exc:  # pragma: no cover - hardware access depends on host setup
             self.last_error = f"Home command failed: {exc}"
             self.status_text = "Home failed"
@@ -596,14 +611,15 @@ class RoboArmBridge(Node):
         current = self.current_joints[servo_id - 1]
         delta = bounded - current
         try:
-            self.arm.Arm_serial_servo_write(servo_id, int(round(bounded)), self.move_duration_ms)
+            if self.arm is not None:
+                self.arm.Arm_serial_servo_write(servo_id, int(round(bounded)), self.move_duration_ms)
             self.current_joints[servo_id - 1] = float(bounded)
             self.commanded_joints[servo_id - 1] = float(bounded)
             deltas = [0.0] * 6
             deltas[servo_id - 1] = delta
             self._record_motion(deltas)
             self.last_error = ""
-            self.status_text = f"Moved {self.joint_names[servo_id - 1]}"
+            self.status_text = f"Moved {self.joint_names[servo_id - 1]}" + (" (Simulation)" if self.arm is None else "")
         except Exception as exc:  # pragma: no cover - hardware access depends on host setup
             self.last_error = f"Move failed for servo {servo_id}: {exc}"
             self.status_text = "Move failed"
@@ -632,22 +648,18 @@ class RoboArmBridge(Node):
         self._apply_multi_joint_targets(targets, "Arm shrunk")
 
     def _apply_multi_joint_targets(self, targets: dict[int, float], success_status: str) -> None:
-        if self.arm is None:
-            self.last_error = "Arm handle unavailable"
-            self.status_text = "Unavailable"
-            return
-
         deltas = [0.0] * 6
         try:
             for servo_id, target in targets.items():
                 current = self.commanded_joints[servo_id - 1]
                 deltas[servo_id - 1] = target - current
-                self.arm.Arm_serial_servo_write(servo_id, int(round(target)), self.move_duration_ms)
+                if self.arm is not None:
+                    self.arm.Arm_serial_servo_write(servo_id, int(round(target)), self.move_duration_ms)
                 self.current_joints[servo_id - 1] = float(target)
                 self.commanded_joints[servo_id - 1] = float(target)
             self._record_motion(deltas)
             self.last_error = ""
-            self.status_text = success_status
+            self.status_text = success_status + (" (Simulation)" if self.arm is None else "")
         except Exception as exc:  # pragma: no cover - hardware access depends on host setup
             self.last_error = f"Multi-joint move failed: {exc}"
             self.status_text = "Move failed"
@@ -660,19 +672,9 @@ class RoboArmBridge(Node):
         self.last_accels = [speed / duration_s for speed in self.last_speeds]
 
     def _ensure_motion_allowed(self, reason: str) -> bool:
-        if not self.connected:
-            self.last_error = f"Cannot {reason}: arm is not connected"
-            self.status_text = "Disconnected"
-            return False
-
-        if not self.active:
+        if not self.active and self.connected:
             self.last_error = f"Cannot {reason}: controller is inactive"
             self.status_text = "Inactive"
-            return False
-
-        if self.arm is None:
-            self.last_error = f"Cannot {reason}: arm handle unavailable"
-            self.status_text = "Unavailable"
             return False
 
         return True
